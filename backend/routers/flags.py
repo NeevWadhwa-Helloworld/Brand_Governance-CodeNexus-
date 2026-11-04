@@ -96,3 +96,4 @@ def resolve_flag(
         "updated_text": updated_text,
         "new_compliance_score": new_compliance
     }
+

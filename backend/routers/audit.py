@@ -10,3 +10,4 @@ def get_audit_logs(org_id: str = "org_inkloom", limit: int = 50):
 @router.get("/draft/{draft_id}")
 def get_draft_audit_logs(draft_id: str):
     return AuditService.get_logs_for_draft(draft_id)
+

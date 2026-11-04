@@ -157,3 +157,4 @@ def get_brand_colors(org_id: str = "org_inkloom"):
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM brand_colors WHERE org_id = ?", (org_id,))
         return cursor.fetchall()
+

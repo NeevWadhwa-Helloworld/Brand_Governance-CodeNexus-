@@ -205,3 +205,4 @@ CRITICAL RULES:
                 })
 
         return flags
+

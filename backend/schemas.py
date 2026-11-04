@@ -168,3 +168,4 @@ class BenchmarkReport(BaseModel):
     avg_first_feedback_target: float
     metrics_summary: List[EvaluationMetricTarget]
     sample_results: List[Dict[str, Any]]
+

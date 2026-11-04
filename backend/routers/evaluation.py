@@ -19,3 +19,4 @@ def get_latest_evaluation_report(org_id: str = "org_inkloom"):
     if _latest_report is None:
         _latest_report = EvaluationService.run_benchmark(org_id)
     return _latest_report
+

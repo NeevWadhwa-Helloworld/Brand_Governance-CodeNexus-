@@ -128,3 +128,4 @@ class AnalyticsService:
             },
             "governance_recommendations": recommendations
         }
+

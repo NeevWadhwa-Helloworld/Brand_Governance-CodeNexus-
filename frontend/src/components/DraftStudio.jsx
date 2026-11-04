@@ -577,3 +577,4 @@ export default function DraftStudio({ currentUser, onDraftUpdated }) {
     </div>
   );
 }
+

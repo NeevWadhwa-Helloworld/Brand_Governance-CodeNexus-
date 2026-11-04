@@ -50,3 +50,4 @@ settings = Settings()
 # Ensure directories exist
 settings.STATIC_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 settings.STATIC_LOGO_DIR.mkdir(parents=True, exist_ok=True)
+

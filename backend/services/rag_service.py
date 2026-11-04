@@ -120,3 +120,4 @@ class RAGService:
             extracted.append(current_rule)
 
         return extracted
+

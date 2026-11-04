@@ -235,3 +235,4 @@ def init_db():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_flags_revision ON flags(revision_id);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_drafts_org ON drafts(org_id);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_draft ON audit_logs(draft_id);")
+

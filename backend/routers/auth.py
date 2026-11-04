@@ -23,3 +23,4 @@ def get_current_user(x_user_id: Optional[str] = Header("user_riya")):
             cursor.execute("SELECT id, org_id, email, name, role, avatar FROM users LIMIT 1")
             user = cursor.fetchone()
         return user
+

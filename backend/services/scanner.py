@@ -138,3 +138,4 @@ class Scanner:
             "scan_duration_ms": duration_ms,
             "status": new_status
         }
+

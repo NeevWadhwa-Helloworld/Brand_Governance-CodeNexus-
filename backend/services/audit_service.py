@@ -79,3 +79,4 @@ class AuditService:
                 pass
             logs.append(entry)
         return logs
+

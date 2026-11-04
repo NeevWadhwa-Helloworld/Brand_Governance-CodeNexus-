@@ -282,3 +282,4 @@ def post_draft_comment(draft_id: str, comment_in: CommentCreate, x_user_id: str 
         """, (cid, draft_id, x_user_id, comment_in.text, comment_in.decision or 'comment', now))
 
     return {"id": cid, "status": "success"}
+

@@ -95,3 +95,4 @@ export default function Navbar({ activeTab, setActiveTab, currentUser, users, on
     </header>
   );
 }
+

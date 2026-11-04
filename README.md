@@ -182,3 +182,4 @@ Use the **Role Switcher** in the top navigation bar to seamlessly experience eve
 1. **Riya Sharma** (`creator`): Freelance Designer & Content Creator submitting drafts, accepting fixes, and submitting for approval.
 2. **Alex Mercer** (`reviewer`): Brand & Marketing Manager reviewing pre-audited drafts and granting official sign-off.
 3. **Chhavi Rani** (`admin`): Platform Admin managing brand guidelines, numbering rules, and inspecting the immutable audit trail.
+
