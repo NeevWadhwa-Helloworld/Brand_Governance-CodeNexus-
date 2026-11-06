@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../api';
 import {
-  Lock, ShieldCheck, EyeOff, Server, Clock, User, AlertCircle, FileText
+  Lock, ShieldCheck, EyeOff, Server, Clock, User, AlertCircle, FileText, Download
 } from 'lucide-react';
 
 export default function AuditSecurity({ currentUser }) {
   const [logs, setLogs] = useState([]);
   const [systemInfo, setSystemInfo] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     loadAuditData();
@@ -17,15 +18,26 @@ export default function AuditSecurity({ currentUser }) {
     setLoading(true);
     try {
       const [lData, sData] = await Promise.all([
-        api.getAuditLogs(60),
+        api.getAuditLogs(60, currentUser?.id),
         api.getSystemInfo()
       ]);
       setLogs(lData);
       setSystemInfo(sData);
     } catch (e) {
       console.error(e);
+      setError(e.message);
     } finally {
       setLoading(false);
+    }
+
+  }
+
+  async function handleExport() {
+    try {
+      setError(null);
+      await api.exportAuditLogs(currentUser?.id);
+    } catch (e) {
+      setError(e.message);
     }
   }
 
@@ -41,6 +53,7 @@ export default function AuditSecurity({ currentUser }) {
 
   return (
     <div className="space-y-6">
+      {error && <div className="rounded-lg border border-rose-500/40 bg-rose-950/30 px-4 py-3 text-xs text-rose-200">{error}</div>}
       {/* Header */}
       <div className="flex items-center justify-between border-b border-slate-800 pb-4">
         <div>
@@ -52,12 +65,22 @@ export default function AuditSecurity({ currentUser }) {
             Section 6.2 Security and Privacy: Data isolation, PII sanitization, and tamper-proof governance audit logs.
           </p>
         </div>
-        <button
-          onClick={loadAuditData}
-          className="text-xs bg-slate-900 hover:bg-slate-850 text-slate-300 border border-slate-700 px-3 py-1.5 rounded-lg"
-        >
-          Refresh Logs
-        </button>
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={handleExport}
+            className="text-xs bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 px-3 py-1.5 rounded-lg flex items-center space-x-1.5 transition-colors"
+            title="Download complete immutable audit logs in CSV format"
+          >
+            <Download className="w-3.5 h-3.5 text-blue-400" />
+            <span>Export CSV</span>
+          </button>
+          <button
+            onClick={loadAuditData}
+            className="text-xs bg-slate-900 hover:bg-slate-850 text-slate-300 border border-slate-700 px-3 py-1.5 rounded-lg transition-colors"
+          >
+            Refresh Logs
+          </button>
+        </div>
       </div>
 
       {/* Security Architecture Cards */}
@@ -91,10 +114,10 @@ export default function AuditSecurity({ currentUser }) {
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-2">
           <div className="flex items-center space-x-2 text-xs font-bold text-purple-400 uppercase">
             <Server className="w-4 h-4" />
-            <span>MCP Grounded RAG</span>
+            <span>Grounded RAG Policy Guard</span>
           </div>
           <p className="text-xs text-slate-300">
-            Model Context Protocol server restricts LLM context exclusively to retrieved numbered rules. Discards hallucinated flags.
+            The current policy guard restricts model context to retrieved numbered rules and discards ungrounded flags.
           </p>
           <div className="text-[10px] text-purple-400 font-mono">
             Provider: {systemInfo?.ai_engine?.provider || 'Gemini Multimodal Adapter'}
@@ -167,4 +190,3 @@ export default function AuditSecurity({ currentUser }) {
     </div>
   );
 }
-

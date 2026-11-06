@@ -1,10 +1,46 @@
 import uuid
+import asyncio
+import hashlib
 from datetime import datetime
 from backend.database import get_db, init_db
 from backend.services.scanner import Scanner
 
-def seed_database():
+def _hash_password(password: str) -> str:
+    from backend.config import settings
+    return hashlib.pbkdf2_hmac("sha256", password.encode(), settings.SECRET_KEY.encode(), 120_000).hex()
+
+async def seed_database():
     init_db()
+
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM organizations WHERE slug = 'inkloom'")
+        existing_org = cursor.fetchone()
+        if existing_org:
+            now = datetime.utcnow().isoformat() + "Z"
+            password_hash = _hash_password("inkloom-demo")
+            migrations = [
+                ("user_riya", "paridhi@inkloom.ai", "Paridhi Agarwal", "creator", "https://api.dicebear.com/7.x/avataaars/svg?seed=Paridhi"),
+                ("user_alex", "neev@inkloom.ai", "Neev Wadhwa", "reviewer", "https://api.dicebear.com/7.x/avataaars/svg?seed=Neev"),
+                ("user_chhavi", "chhavi@inkloom.ai", "Chhavi Rani", "admin", "https://api.dicebear.com/7.x/avataaars/svg?seed=Chhavi"),
+            ]
+            for user_id, email, name, role, avatar in migrations:
+                cursor.execute("""
+                    UPDATE users SET email = ?, name = ?, role = ?, avatar = ?, password_hash = ?
+                    WHERE id = ?
+                """, (email, name, role, avatar, password_hash, user_id))
+            cursor.execute("SELECT 1 FROM users WHERE id = 'user_prateek'")
+            if not cursor.fetchone():
+                cursor.execute("""
+                    INSERT INTO users (id, org_id, email, name, role, avatar, created_at, password_hash)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    "user_prateek", existing_org["id"], "prateek@inkloom.ai", "Prateek Singh",
+                    "creator", "https://api.dicebear.com/7.x/avataaars/svg?seed=Prateek",
+                    now, password_hash
+                ))
+            print("[Seed] Existing database identity migration completed.")
+            return
 
     with get_db() as conn:
         cursor = conn.cursor()
@@ -26,15 +62,16 @@ def seed_database():
 
         # Users
         users = [
-            ("user_riya", org_id, "riya@inkloom.ai", "Riya Sharma", "creator", "https://api.dicebear.com/7.x/avataaars/svg?seed=Riya"),
-            ("user_alex", org_id, "alex@inkloom.ai", "Alex Mercer", "reviewer", "https://api.dicebear.com/7.x/avataaars/svg?seed=Alex"),
-            ("user_chhavi", org_id, "chhavi@inkloom.ai", "Chhavi Rani", "admin", "https://api.dicebear.com/7.x/avataaars/svg?seed=Chhavi")
+            ("user_riya", org_id, "paridhi@inkloom.ai", "Paridhi Agarwal", "creator", "https://api.dicebear.com/7.x/avataaars/svg?seed=Paridhi"),
+            ("user_alex", org_id, "neev@inkloom.ai", "Neev Wadhwa", "reviewer", "https://api.dicebear.com/7.x/avataaars/svg?seed=Neev"),
+            ("user_chhavi", org_id, "chhavi@inkloom.ai", "Chhavi Rani", "admin", "https://api.dicebear.com/7.x/avataaars/svg?seed=Chhavi"),
+            ("user_prateek", org_id, "prateek@inkloom.ai", "Prateek Singh", "creator", "https://api.dicebear.com/7.x/avataaars/svg?seed=Prateek")
         ]
         for uid, oid, email, name, role, avatar in users:
             cursor.execute("""
-                INSERT INTO users (id, org_id, email, name, role, avatar, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (uid, oid, email, name, role, avatar, now))
+                INSERT INTO users (id, org_id, email, name, role, avatar, created_at, password_hash)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (uid, oid, email, name, role, avatar, now, _hash_password("inkloom-demo")))
 
         # Guideline Version
         version_id = "gv_v3_2"
@@ -150,11 +187,11 @@ def seed_database():
 
     # Perform initial automated scans to populate live flags & audit logs
     print("[Seed] Running initial two-layer scan on sample drafts...")
-    Scanner.scan_draft(draft1_id, "user_riya", content_text=draft1_text)
-    Scanner.scan_draft(draft2_id, "user_riya", content_text=draft2_text)
-    Scanner.scan_draft(draft3_id, "user_riya", image_path="backend/static/uploads/sample_banner.png")
+    await Scanner.scan_draft(draft1_id, "user_riya", content_text=draft1_text)
+    await Scanner.scan_draft(draft2_id, "user_riya", content_text=draft2_text)
+    await Scanner.scan_draft(draft3_id, "user_riya", image_path="backend/static/uploads/sample_banner.png")
 
     print("[Seed] Seeding completed successfully.")
 
 if __name__ == "__main__":
-    seed_database()
+    asyncio.run(seed_database())

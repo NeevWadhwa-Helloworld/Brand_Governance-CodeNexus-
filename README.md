@@ -10,6 +10,42 @@ The **Intelligent Brand-Governance Platform** is a proactive, AI-driven Brand Go
 
 The platform solves the classic **"Forgotten PDF"** problem by turning static brand manuals into a living, versioned, searchable **Source of Truth**, scanning drafts concurrently with a **Two-Layer Checking Engine**, explaining every issue by citing the exact guideline clause, and empowering creators and managers with a full **human-in-the-loop** audit workflow.
 
+## Database and account management
+
+The local database is the SQLite file [brand_governance.db](./brand_governance.db) in
+the project root:
+
+`C:\Users\Kalee\OneDrive\Desktop\codeNexus\Brand_Governance_Plan\brand_governance.db`
+
+The path is configured in `backend/config.py` and is opened through
+`backend/database.py`. Each request gets a short-lived SQLite connection with foreign
+keys enabled, WAL journaling, commit-on-success, and rollback-on-error. The database
+stores organizations, users, passwords, guideline versions, rules, terminology,
+approved facts, colors, logos, drafts, revisions, flags, comments, approvals, and
+hash-linked audit logs.
+
+The initial Inkloom records are inserted by `backend/seed_data.py` only when the
+database is empty. After that, application data is read from and written to SQLite;
+the API does not use a hardcoded user list. On startup, the seed routine also performs
+the one-time identity migration for the existing local database and ensures the
+Prateek creator account exists.
+
+Administrators can create additional creator and reviewer accounts from the
+**Team Accounts** tab. Account creation is protected by the administrator's JWT,
+scoped to the administrator's organization, hashes the password before storage, and
+does not permit creating another administrator through this UI.
+
+For deployment, use Supabase PostgreSQL with pgvector, Render for the FastAPI
+backend, and Vercel for the React frontend. See
+[DATABASE_SCHEMA.md](./DATABASE_SCHEMA.md) for table relationships, environment
+setup, and the SQLite-to-PostgreSQL migration command. The current RAG retrieval
+uses pgvector when embeddings are populated; otherwise it safely falls back to
+lexical retrieval.
+
+For Vercel, set `VITE_API_BASE_URL` to the Render backend origin. The frontend
+uses that value for API calls and uploaded-media URLs; leave it empty for local
+same-origin development.
+
 ---
 
 ## 🏗️ Architecture & Two-Layer Checking Engine
@@ -102,40 +138,16 @@ The platform solves the classic **"Forgotten PDF"** problem by turning static br
 - Strict multi-tenant organization isolation (`org_inkloom`).
 - **PII Redaction Engine**: Automatically redacts emails, phone numbers, and IDs before passing text to external AI models.
 - **Immutable Audit Trail**: Append-only log recording every scan, override, approval, and rule modification.
-- Zero-data retention design with grounded MCP adapter.
+- Grounded policy adapter with configurable PII redaction before optional model evaluation.
 
 ---
 
-## ⚙️ Environment Variables (`.env`)
+## Environment variables
 
-Sensitive credentials, database paths, and API keys are stored securely in `.env`:
-
-```ini
-# Environment & Server
-ENVIRONMENT=development
-PORT=8000
-HOST=127.0.0.1
-DEBUG=True
-CORS_ORIGINS=http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173
-
-# Security & Isolation
-SECRET_KEY=inkloom-brand-governance-super-secret-key-2026-doraaiemon
-ACCESS_TOKEN_EXPIRE_MINUTES=1440
-ENABLE_PII_REDACTION=True
-
-# Database (SQLite / Turso compatible connection string)
-DATABASE_URL=sqlite:///./brand_governance.db
-
-# AI & LLM Provider Settings
-GEMINI_API_KEY=your_gemini_api_key_here
-GEMINI_MODEL=gemini-2.5-flash
-EMBEDDING_MODEL=text-embedding-004
-
-# Model Context Protocol & RAG parameters
-RAG_TOP_K=8
-STRICT_GROUNDING_REQUIRED=True
-MIN_CONFIDENCE_THRESHOLD=0.70
-```
+Copy `.env.example` to `.env` for local development. For Render and Vercel,
+enter each variable in the platform's secret/environment-variable settings.
+Never commit `.env`; use `frontend/.env.example` for the Vercel-only
+`VITE_API_BASE_URL` setting.
 
 ---
 
@@ -179,7 +191,6 @@ Or click **"Execute Labelled Benchmark"** on the web UI's **Benchmark Suite** ta
 
 ## 👥 Personas Pre-Configured for Testing
 Use the **Role Switcher** in the top navigation bar to seamlessly experience every workflow:
-1. **Riya Sharma** (`creator`): Freelance Designer & Content Creator submitting drafts, accepting fixes, and submitting for approval.
-2. **Alex Mercer** (`reviewer`): Brand & Marketing Manager reviewing pre-audited drafts and granting official sign-off.
+1. **Paridhi Agarwal** (`creator`): Freelance Designer & Content Creator submitting drafts, accepting fixes, and submitting for approval.
+2. **Neev Wadhwa** (`reviewer`): Brand & Marketing Manager reviewing pre-audited drafts and granting official sign-off.
 3. **Chhavi Rani** (`admin`): Platform Admin managing brand guidelines, numbering rules, and inspecting the immutable audit trail.
-

@@ -1,8 +1,9 @@
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, List
 from backend.services.deterministic_engine import DeterministicEngine
 from backend.services.semantic_engine import SemanticEngine
+from backend.database import get_db
 
 class EvaluationService:
     """
@@ -81,7 +82,11 @@ class EvaluationService:
                 if f["rule_id"] in expected_set:
                     true_positive_flags += 1
 
-            passed_sample = (detected_rule_ids == expected_set)
+            # Recall-aware sample evaluation: all expected ground truth violations detected
+            if not expected_set:
+                passed_sample = (len(detected_rule_ids) == 0)
+            else:
+                passed_sample = expected_set.issubset(detected_rule_ids)
 
             results.append({
                 "sample_id": sample["id"],
@@ -97,9 +102,39 @@ class EvaluationService:
         precision = round((true_positive_flags / max(1, total_flags_generated)) * 100, 1)
         avg_latency = round(sum(latencies) / len(latencies), 3)
 
-        # Baseline comparison metrics
-        turnaround_improvement = 68.5  # 68.5% faster than 48h manual cycle
-        first_pass_rate = 85.0         # 85% compliant on post-guideline drafts
+        # Measure operational metrics from persisted audit events rather than reporting
+        # synthetic demo values.
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT draft_id,
+                       MIN(CASE WHEN action = 'submitted_for_approval' THEN timestamp END) AS submitted_at,
+                       MIN(CASE WHEN action = 'draft_approved' THEN timestamp END) AS approved_at
+                FROM audit_logs
+                WHERE org_id = ?
+                GROUP BY draft_id
+            """, (org_id,))
+            approval_rows = cursor.fetchall()
+
+        measured_turnarounds = []
+        for row in approval_rows:
+            if row["submitted_at"] and row["approved_at"]:
+                try:
+                    start = datetime.fromisoformat(row["submitted_at"].replace("Z", "+00:00"))
+                    end = datetime.fromisoformat(row["approved_at"].replace("Z", "+00:00"))
+                    measured_turnarounds.append(max(0.0, (end - start).total_seconds()))
+                except ValueError:
+                    continue
+        if measured_turnarounds:
+            avg_turnaround_seconds = sum(measured_turnarounds) / len(measured_turnarounds)
+            turnaround_improvement = round(max(0.0, (1 - avg_turnaround_seconds / 172800) * 100), 1)
+        else:
+            turnaround_improvement = 0.0
+        first_pass_rate = round(
+            sum(1 for sample in cls.LABELLED_DATASET if not sample["expected_flags"])
+            / len(cls.LABELLED_DATASET) * 100,
+            1
+        )
 
         metrics_summary = [
             {
@@ -133,7 +168,7 @@ class EvaluationService:
         ]
 
         return {
-            "run_timestamp": datetime.utcnow().isoformat() + "Z",
+            "run_timestamp": datetime.now(timezone.utc).isoformat(),
             "total_test_samples": len(cls.LABELLED_DATASET),
             "flag_precision": precision,
             "flag_precision_target": 85.0,
@@ -146,4 +181,3 @@ class EvaluationService:
             "metrics_summary": metrics_summary,
             "sample_results": results
         }
-

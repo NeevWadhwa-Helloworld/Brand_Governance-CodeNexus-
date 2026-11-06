@@ -7,7 +7,9 @@ import {
 
 export default function AnalyticsDashboard() {
   const [data, setData] = useState(null);
+  const [trends, setTrends] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     loadAnalytics();
@@ -16,27 +18,36 @@ export default function AnalyticsDashboard() {
   async function loadAnalytics() {
     setLoading(true);
     try {
-      const res = await api.getAnalytics();
+      const [res, trendData] = await Promise.all([api.getAnalytics(), api.getAnalyticsTrends()]);
       setData(res);
+      setTrends(trendData);
     } catch (e) {
       console.error(e);
+      setError(e.message);
     } finally {
       setLoading(false);
     }
   }
 
-  if (loading || !data) {
+  if (loading) {
     return (
       <div className="p-8 text-center text-slate-500">
         Loading governance analytics...
       </div>
     );
   }
+  if (!data) {
+    return <div className="rounded-lg border border-rose-500/40 bg-rose-950/30 px-4 py-3 text-xs text-rose-200">{error || 'Analytics unavailable.'}</div>;
+  }
 
-  const { summary, top_flagged_terms, category_breakdown, resolution_stats, governance_recommendations } = data;
+  const { summary, top_flagged_terms, category_breakdown, resolution_stats, governance_recommendations, compliance_trends } = data;
+  const chartPoints = trends.length
+    ? trends.map((item, index) => `${(index / Math.max(1, trends.length - 1)) * 100},${100 - Math.min(100, item.compliance_score)}`)
+    : [];
 
   return (
     <div className="space-y-6">
+      {error && <div className="rounded-lg border border-rose-500/40 bg-rose-950/30 px-4 py-3 text-xs text-rose-200">{error}</div>}
       {/* Dashboard Title */}
       <div className="flex items-center justify-between border-b border-slate-800 pb-4">
         <div>
@@ -140,6 +151,17 @@ export default function AnalyticsDashboard() {
       </div>
 
       {/* Main Charts & Analytics Rows */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-bold text-white uppercase tracking-wider">Compliance Trend</h3>
+          <span className="text-[11px] text-slate-500">Daily average score</span>
+        </div>
+        {chartPoints.length > 1 ? (
+          <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-32 w-full overflow-visible">
+            <polyline points={chartPoints.join(' ')} fill="none" stroke="#38bdf8" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+          </svg>
+        ) : <p className="text-xs text-slate-500">Trend data will appear after multiple scans.</p>}
+      </div>
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Column: Top Flagged Terms */}
         <div className="lg:col-span-7 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
@@ -270,4 +292,3 @@ export default function AnalyticsDashboard() {
     </div>
   );
 }
-

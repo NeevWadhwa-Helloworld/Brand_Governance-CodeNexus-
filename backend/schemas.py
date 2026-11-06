@@ -10,6 +10,21 @@ class UserBase(BaseModel):
     role: Literal['creator', 'reviewer', 'admin']
     avatar: Optional[str] = None
 
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+class UserCreate(BaseModel):
+    email: str
+    name: str
+    password: str = Field(min_length=8)
+    role: Literal['creator', 'reviewer']
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserBase
+
 class OrganizationBase(BaseModel):
     id: str
     name: str
@@ -50,12 +65,40 @@ class ApprovedFactItem(BaseModel):
     citation: str
     last_updated: str
 
+class ApprovedFactCreate(BaseModel):
+    fact_key: str
+    claim_text: str
+    approved_metric: str
+    citation: str
+
+class ApprovedFactUpdate(BaseModel):
+    fact_key: Optional[str] = None
+    claim_text: Optional[str] = None
+    approved_metric: Optional[str] = None
+    citation: Optional[str] = None
+
 class BrandColorItem(BaseModel):
     id: str
     name: str
     hex_code: str
     role: Literal['primary', 'secondary', 'accent', 'neutral', 'background']
     min_contrast: float = 4.5
+
+class BrandColorCreate(BaseModel):
+    name: str
+    hex_code: str
+    role: Literal['primary', 'secondary', 'accent', 'neutral', 'background']
+    min_contrast: float = 4.5
+
+class BrandLogoItem(BaseModel):
+    id: str
+    org_id: str
+    version_id: str
+    name: str
+    file_path: str
+    file_hash: str
+    aspect_ratio: Optional[float] = 1.0
+    min_clearance_pct: Optional[float] = 10.0
 
 # Flag Schemas
 class FlagItem(BaseModel):
@@ -66,6 +109,9 @@ class FlagItem(BaseModel):
     span: str
     start_idx: int = -1
     end_idx: int = -1
+    start_time: Optional[float] = None
+    end_time: Optional[float] = None
+    frame_number: Optional[int] = None
     explanation: str
     fix: str
     confidence: float
@@ -88,6 +134,9 @@ class RevisionItem(BaseModel):
     content_text: Optional[str] = None
     image_path: Optional[str] = None
     compliance_score: float = 0.0
+    policy_coverage_status: Literal['covered', 'needs_review'] = 'covered'
+    policy_coverage_reason: Optional[str] = None
+    media_analysis: Optional[dict] = None
     created_at: str
     flags: List[FlagItem] = []
 
@@ -106,10 +155,11 @@ class DraftDetail(BaseModel):
     author_id: str
     author_name: Optional[str] = None
     title: str
-    content_type: Literal['text', 'image']
+    content_type: Literal['text', 'image', 'audio', 'video']
     current_version: int
     status: Literal['Submitted', 'Scanned', 'In Revision', 'Pending Approval', 'Approved', 'Changes Requested']
     content_ref: Optional[str] = None
+    media_metadata: Optional[dict] = None
     created_at: str
     updated_at: str
     latest_revision: Optional[RevisionItem] = None
@@ -134,6 +184,9 @@ class ScanResponse(BaseModel):
     flags: List[FlagItem]
     scan_duration_ms: float
     status: str
+    policy_coverage_status: Literal['covered', 'needs_review'] = 'covered'
+    policy_coverage_reason: Optional[str] = None
+    media_analysis: Optional[dict] = None
 
 # Structured LLM Output Schema (Layer 2)
 class SemanticFlagItem(BaseModel):
@@ -168,4 +221,3 @@ class BenchmarkReport(BaseModel):
     avg_first_feedback_target: float
     metrics_summary: List[EvaluationMetricTarget]
     sample_results: List[Dict[str, Any]]
-

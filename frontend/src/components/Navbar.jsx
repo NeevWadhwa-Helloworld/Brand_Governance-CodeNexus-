@@ -1,15 +1,25 @@
 import React from 'react';
-import { ShieldCheck, Sparkles, UserCheck, FileText, CheckCircle, Brain, BarChart3, TestTube2, Lock } from 'lucide-react';
+import { ShieldCheck, FileText, CheckCircle, Brain, BarChart3, TestTube2, Lock, Users } from 'lucide-react';
 
-export default function Navbar({ activeTab, setActiveTab, currentUser, users, onSwitchUser, pendingCount }) {
-  const tabs = [
+const ROLE_TABS = {
+  creator: ['studio', 'analytics'],
+  reviewer: ['approvals', 'analytics', 'audit'],
+  admin: ['brain', 'studio', 'approvals', 'analytics', 'evaluation', 'audit', 'users']
+};
+
+export default function Navbar({ activeTab, setActiveTab, currentUser, pendingCount, onLogout }) {
+  const allTabs = [
     { id: 'studio', label: 'Draft Studio & Scanner', icon: FileText },
     { id: 'approvals', label: 'Approval Queue', icon: CheckCircle, badge: pendingCount },
     { id: 'brain', label: 'Source of Truth Brain', icon: Brain },
     { id: 'analytics', label: 'Governance Analytics', icon: BarChart3 },
     { id: 'evaluation', label: 'Benchmark Suite (Sec 9.1)', icon: TestTube2 },
     { id: 'audit', label: 'Audit & Security', icon: Lock },
+    { id: 'users', label: 'Team Accounts', icon: Users },
   ];
+
+  const allowedTabs = currentUser ? (ROLE_TABS[currentUser.role] || ROLE_TABS.creator) : ROLE_TABS.creator;
+  const visibleTabs = allTabs.filter(tab => allowedTabs.includes(tab.id));
 
   return (
     <header className="border-b border-slate-800 bg-slate-900/90 backdrop-blur sticky top-0 z-50">
@@ -33,7 +43,7 @@ export default function Navbar({ activeTab, setActiveTab, currentUser, users, on
         <div className="flex items-center space-x-3">
           <span className="text-slate-400 font-medium">Acting as:</span>
           <div className="flex items-center space-x-1 bg-slate-800/90 p-1 rounded-lg border border-slate-700">
-            {users.map(u => {
+            {[currentUser].filter(Boolean).map(u => {
               const isSelected = currentUser?.id === u.id;
               const roleColors = {
                 creator: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
@@ -44,7 +54,7 @@ export default function Navbar({ activeTab, setActiveTab, currentUser, users, on
               return (
                 <button
                   key={u.id}
-                  onClick={() => onSwitchUser(u)}
+                  disabled
                   className={`flex items-center space-x-1.5 px-2.5 py-1 rounded text-xs transition-all ${
                     isSelected
                       ? 'bg-blue-600 text-white font-medium shadow-sm'
@@ -61,13 +71,19 @@ export default function Navbar({ activeTab, setActiveTab, currentUser, users, on
               );
             })}
           </div>
+          <button
+            onClick={onLogout}
+            className="rounded-lg border border-slate-700 px-2.5 py-1 text-xs text-slate-400 hover:bg-slate-800 hover:text-white"
+          >
+            Sign out
+          </button>
         </div>
       </div>
 
       {/* Main Tabs Navigation */}
       <div className="max-w-7xl mx-auto px-4 flex items-center justify-between">
         <nav className="flex space-x-1 overflow-x-auto py-2">
-          {tabs.map(tab => {
+          {visibleTabs.map(tab => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
             return (
@@ -95,4 +111,3 @@ export default function Navbar({ activeTab, setActiveTab, currentUser, users, on
     </header>
   );
 }
-

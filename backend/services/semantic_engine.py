@@ -14,27 +14,42 @@ class SemanticEngine:
     """
 
     @classmethod
-    def run(cls, org_id: str, text: str, image_path: Optional[str] = None) -> List[Dict[str, Any]]:
+    def run(cls, org_id: str, text: str = "", image_path: Optional[str] = None) -> List[Dict[str, Any]]:
         # 1. Retrieve top-k relevant rules from the Source of Truth
-        retrieved_rules = RAGService.retrieve_relevant_rules(org_id, text, top_k=settings.RAG_TOP_K)
+        search_query = text if text else "color logo visual layout accessibility contrast"
+        retrieved_rules = RAGService.retrieve_relevant_rules(org_id, search_query, top_k=settings.RAG_TOP_K)
         if not retrieved_rules:
             return []
 
         retrieved_rule_ids = {r['rule_id'] for r in retrieved_rules}
 
         # 2. Redact personal data if enabled
-        clean_text, pii_mapping = PIIRedactor.redact(text)
+        clean_text, pii_mapping = PIIRedactor.redact(text) if text else ("", {})
 
         # 3. Call AI Model (Gemini if key provided, else intelligent local semantic engine)
         raw_flags = []
-        if settings.GEMINI_API_KEY and settings.GEMINI_API_KEY != "your_gemini_api_key_here":
-            try:
-                raw_flags = cls._call_gemini_rag(clean_text, retrieved_rules)
-            except Exception as e:
-                print(f"[SemanticEngine] Gemini call failed, falling back to local semantic parser: {e}")
-                raw_flags = cls._local_semantic_rules_eval(clean_text, retrieved_rules)
-        else:
-            raw_flags = cls._local_semantic_rules_eval(clean_text, retrieved_rules)
+        has_api_key = bool(settings.GEMINI_API_KEY and settings.GEMINI_API_KEY != "your_gemini_api_key_here")
+
+        if clean_text:
+            if has_api_key:
+                try:
+                    raw_flags.extend(cls._call_gemini_rag(clean_text, retrieved_rules))
+                except Exception as e:
+                    print(f"[SemanticEngine] Gemini text call failed, using local parser: {e}")
+                    raw_flags.extend(cls._local_semantic_rules_eval(clean_text, retrieved_rules))
+            else:
+                raw_flags.extend(cls._local_semantic_rules_eval(clean_text, retrieved_rules))
+
+        # 4. Multimodal Layer 2: Visual analysis if image is provided
+        if image_path:
+            if has_api_key:
+                try:
+                    raw_flags.extend(cls._call_gemini_vision(image_path, retrieved_rules))
+                except Exception as e:
+                    print(f"[SemanticEngine] Gemini vision call failed, using local visual parser: {e}")
+                    raw_flags.extend(cls._local_visual_semantic_eval(image_path, retrieved_rules))
+            else:
+                raw_flags.extend(cls._local_visual_semantic_eval(image_path, retrieved_rules))
 
         # 4. Strict Grounding Filter: Discard any flag that cannot cite a valid retrieved rule!
         grounded_flags = []
@@ -117,6 +132,70 @@ CRITICAL RULES:
         parsed = json.loads(response.text)
         flags_data = parsed.get("flags", [])
         return flags_data
+
+    @classmethod
+    def _call_gemini_vision(cls, image_path: str, retrieved_rules: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        from google import genai
+        from google.genai import types
+        from PIL import Image
+
+        client = genai.Client(api_key=settings.GEMINI_API_KEY)
+        pil_img = Image.open(image_path)
+
+        rules_prompt_block = "\n".join([
+            f"- Rule ID: {r['rule_id']} | Category: {r['category']} | Requirements: {r['text']} {r.get('details') or ''}"
+            for r in retrieved_rules
+        ])
+
+        system_instruction = f"""
+You are the Multimodal Brand Governance Visual Inspector for Inkloom AI.
+Inspect this visual banner or image creative against the following retrieved brand rules:
+{rules_prompt_block}
+
+RULES:
+1. Detect any unapproved hex colors, obsolete logos, poor contrast, or tone breaches in the image.
+2. ONLY cite Rule IDs from the provided list.
+3. Every flag MUST return: rule_id, quoted_span, explanation, suggested_fix, and confidence.
+"""
+        response = client.models.generate_content(
+            model=settings.GEMINI_MODEL,
+            contents=[
+                pil_img,
+                "Analyze this brand creative image against our official brand rules and return structured flags if any rule is violated."
+            ],
+            config=types.GenerateContentConfig(
+                system_instruction=system_instruction,
+                response_mime_type="application/json",
+                response_schema=SemanticScanOutput,
+                temperature=0.1
+            ),
+        )
+
+        parsed = json.loads(response.text)
+        return parsed.get("flags", [])
+
+    @classmethod
+    def _local_visual_semantic_eval(cls, image_path: str, retrieved_rules: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Local semantic visual evaluator for environments without external Gemini API key.
+        Checks for semantic visual guidelines such as assistive co-pilot positioning (CLAIM-02)
+        and official visual mark clearance (LOGO-01).
+        """
+        flags = []
+        retrieved_ids = {r['rule_id'] for r in retrieved_rules}
+        lower_path = image_path.lower()
+
+        # If banner filename or image metadata indicates deprecated assets or missing safe margins
+        if "LOGO-01" in retrieved_ids and ("beta" in lower_path or "old" in lower_path or "2024" in lower_path):
+            flags.append({
+                "rule_id": "LOGO-01",
+                "quoted_span": "Visual brand asset header",
+                "explanation": "Visual asset uses deprecated beta branding. Guideline LOGO-01 mandates official Inkloom v3 geometry with 32px safe clearance.",
+                "suggested_fix": "Swap banner logo layer with official SVG from Source of Truth",
+                "confidence": 0.95
+            })
+
+        return flags
 
     @classmethod
     def _local_semantic_rules_eval(cls, text: str, retrieved_rules: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

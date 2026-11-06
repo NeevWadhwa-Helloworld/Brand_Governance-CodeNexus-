@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { api } from '../api';
+import { api, mediaUrl } from '../api';
 import {
   CheckCircle2, AlertOctagon, MessageSquare, History, FileCheck,
   ShieldCheck, ArrowRight, UserCheck, Download, Clock
 } from 'lucide-react';
 
-export default function ApprovalPipeline({ currentUser, onDraftUpdated }) {
+export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToast }) {
   const [drafts, setDrafts] = useState([]);
   const [selectedDraftId, setSelectedDraftId] = useState(null);
   const [currentDraft, setCurrentDraft] = useState(null);
@@ -70,8 +70,17 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated }) {
       await loadDraftDetails(currentDraft.id);
       await loadApprovalQueue();
       if (onDraftUpdated) onDraftUpdated();
+      if (showToast) {
+        showToast(
+          decision === 'Approved' 
+            ? `Draft "${currentDraft.title}" officially approved!` 
+            : `Changes requested on "${currentDraft.title}"`,
+          decision === 'Approved' ? 'success' : 'error'
+        );
+      }
     } catch (e) {
       console.error(e);
+      if (showToast) showToast("Failed to submit decision", "error");
     }
   }
 
@@ -82,6 +91,7 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated }) {
       await api.postComment(currentDraft.id, newComment, currentUser.id);
       setNewComment('');
       await loadComments(currentDraft.id);
+      if (showToast) showToast("Comment posted to audit thread", "info");
     } catch (e) {
       console.error(e);
     }
@@ -260,13 +270,24 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated }) {
               <div className="bg-slate-950 border border-slate-800 rounded-lg p-4 font-mono text-xs leading-relaxed text-slate-200">
                 {currentDraft.content_type === 'text' ? (
                   currentDraft.latest_revision?.content_text || 'No text content available.'
-                ) : (
+                ) : currentDraft.content_type === 'image' ? (
                   <div className="flex justify-center">
                     <img
-                      src={currentDraft.content_ref || '/static/uploads/sample_banner.png'}
+                      src={mediaUrl(currentDraft.content_ref || '/static/uploads/sample_banner.png')}
                       alt="Banner"
                       className="max-h-60 rounded border border-slate-800"
                     />
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {currentDraft.content_type === 'audio' ? (
+                      <audio controls src={mediaUrl(currentDraft.content_ref)} className="w-full" />
+                    ) : (
+                      <video controls src={mediaUrl(currentDraft.content_ref)} className="max-h-60 w-full rounded" />
+                    )}
+                    <p className="text-[11px] text-amber-300">
+                      Media metadata is available. Transcript/caption policy coverage must be confirmed before approval.
+                    </p>
                   </div>
                 )}
               </div>
@@ -379,4 +400,3 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated }) {
     </div>
   );
 }
-

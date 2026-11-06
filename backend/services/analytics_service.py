@@ -105,6 +105,22 @@ class AnalyticsService:
                     "action": "Publish Proof Sheet"
                 })
 
+            # 7. Daily compliance & activity time-series trends
+            cursor.execute("""
+                SELECT substr(r.created_at, 1, 10) as scan_date,
+                       ROUND(AVG(r.compliance_score), 1) as avg_compliance,
+                       COUNT(DISTINCT r.id) as scan_count,
+                       COUNT(f.id) as flag_count
+                FROM revisions r
+                JOIN drafts d ON r.draft_id = d.id
+                LEFT JOIN flags f ON f.revision_id = r.id
+                WHERE d.org_id = ?
+                GROUP BY scan_date
+                ORDER BY scan_date ASC
+                LIMIT 14
+            """, (org_id,))
+            trend_rows = cursor.fetchall()
+
         return {
             "summary": {
                 "total_drafts": total_drafts,
@@ -120,6 +136,7 @@ class AnalyticsService:
             },
             "top_flagged_terms": top_flagged_terms,
             "category_breakdown": category_breakdown,
+            "compliance_trends": trend_rows or [],
             "resolution_stats": {
                 "accepted": accepted_cnt,
                 "edited": edited_cnt,
@@ -129,3 +146,21 @@ class AnalyticsService:
             "governance_recommendations": recommendations
         }
 
+    @classmethod
+    def get_trends(cls, org_id: str) -> List[Dict[str, Any]]:
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT substr(r.created_at, 1, 10) AS date,
+                       ROUND(AVG(r.compliance_score), 1) AS compliance_score,
+                       COUNT(DISTINCT r.id) AS scans,
+                       COUNT(f.id) AS flags
+                FROM revisions r
+                JOIN drafts d ON d.id = r.draft_id
+                LEFT JOIN flags f ON f.revision_id = r.id
+                WHERE d.org_id = ?
+                GROUP BY date
+                ORDER BY date ASC
+                LIMIT 30
+            """, (org_id,))
+            return cursor.fetchall()

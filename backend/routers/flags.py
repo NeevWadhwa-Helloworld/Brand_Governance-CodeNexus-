@@ -1,8 +1,9 @@
 from datetime import datetime
-from fastapi import APIRouter, HTTPException, Header
+from fastapi import APIRouter, Depends, HTTPException
 from backend.database import get_db
 from backend.schemas import FlagResolveRequest
 from backend.services.audit_service import AuditService
+from backend.dependencies import get_current_user
 
 router = APIRouter(prefix="/api/flags", tags=["flags"])
 
@@ -10,8 +11,9 @@ router = APIRouter(prefix="/api/flags", tags=["flags"])
 def resolve_flag(
     flag_id: str,
     req: FlagResolveRequest,
-    x_user_id: str = Header("user_riya")
+    current_user: dict = Depends(get_current_user)
 ):
+    x_user_id = current_user["id"]
     """
     Human-in-the-Loop Collaboration on AI Flags:
     - Accept: Replaces off-brand span with suggested fix
@@ -96,4 +98,3 @@ def resolve_flag(
         "updated_text": updated_text,
         "new_compliance_score": new_compliance
     }
-
