@@ -47,6 +47,18 @@ For Vercel, set `VITE_API_BASE_URL` to the Render backend origin. The frontend
 uses that value for API calls and uploaded-media URLs; leave it empty for local
 same-origin development.
 
+On Render, `TRUSTED_HOSTS` must contain the Render hostname without a protocol,
+and `CORS_ORIGINS` must contain the complete Vercel origin. For the currently
+deployed services, use:
+
+```env
+TRUSTED_HOSTS=brand-governance-codenexus.onrender.com
+CORS_ORIGINS=https://brand-governance-code-nexu.vercel.app
+```
+
+These values are configured in Render's environment settings, not in the
+frontend build.
+
 ---
 
 ## 🏗️ Architecture & Two-Layer Checking Engine

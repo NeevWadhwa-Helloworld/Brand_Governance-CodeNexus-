@@ -17,9 +17,9 @@ class Settings:
     HOST: str = os.getenv("HOST", "127.0.0.1")
     DEBUG: bool = os.getenv("DEBUG", "False").lower() in ("true", "1", "yes")
     CORS_ORIGINS: list[str] = [
-        origin.strip()
+        origin.strip().rstrip("/")
         for origin in os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173").split(",")
-        if origin.strip()
+        if origin.strip().rstrip("/")
     ]
     TRUSTED_HOSTS: list[str] = [
         host.strip()

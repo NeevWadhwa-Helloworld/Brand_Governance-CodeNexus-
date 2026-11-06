@@ -29,12 +29,12 @@ export default function App() {
 
   async function initApp() {
     try {
-      const uList = await api.getUsers();
-      setUsers(uList);
       const token = localStorage.getItem('access_token');
       if (token) {
         const authenticatedUser = await api.getMe();
         setCurrentUser(authenticatedUser);
+        const uList = await api.getUsers();
+        setUsers(uList);
         const allowed = ROLE_TABS[authenticatedUser.role] || ROLE_TABS.creator;
         setActiveTab(allowed[0]);
         refreshPendingCount();
@@ -54,6 +54,7 @@ export default function App() {
     try {
       const user = await api.login(form.get('email'), form.get('password'));
       setCurrentUser(user);
+      setUsers(await api.getUsers());
       const allowed = ROLE_TABS[user.role] || ROLE_TABS.creator;
       setActiveTab(allowed[0]);
     } catch (e) {
