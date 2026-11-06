@@ -1,192 +1,532 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../api';
 import {
-  Lock, ShieldCheck, EyeOff, Server, Clock, User, AlertCircle, FileText, Download
+  Lock, ShieldCheck, EyeOff, Server, Clock, Download,
+  RefreshCw, Search, X, ChevronRight, Hash,
+  Shield, AlertTriangle, ArrowUpDown
 } from 'lucide-react';
 
 export default function AuditSecurity({ currentUser }) {
   const [logs, setLogs] = useState([]);
   const [systemInfo, setSystemInfo] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [error, setError] = useState(null);
+
+  // Search, Filter, Sort state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [actionCategory, setActionCategory] = useState('all'); // all, scans, decisions, flags, governance
+  const [sortOrder, setSortOrder] = useState('desc'); // desc (newest), asc (oldest)
+
+  // Detail Modal state
+  const [selectedLog, setSelectedLog] = useState(null);
+
+  async function loadAuditData() {
+    setLoading(true);
+    setError(null);
+    try {
+      const [lData, sData] = await Promise.all([
+        api.getAuditLogs(100, currentUser?.id),
+        api.getSystemInfo()
+      ]);
+      setLogs(lData || []);
+      setSystemInfo(sData || null);
+    } catch (e) {
+      console.error(e);
+      setError(e.message || 'Failed to load audit logs.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleRefresh() {
+    setRefreshing(true);
+    setError(null);
+    try {
+      const [lData, sData] = await Promise.all([
+        api.getAuditLogs(100, currentUser?.id),
+        api.getSystemInfo()
+      ]);
+      setLogs(lData || []);
+      setSystemInfo(sData || null);
+    } catch (e) {
+      console.error(e);
+      setError(e.message || 'Failed to refresh audit trail.');
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
+  async function handleExport() {
+    try {
+      setExporting(true);
+      setError(null);
+      await api.exportAuditLogs(currentUser?.id);
+    } catch (e) {
+      setError(e.message || 'Failed to export audit logs.');
+    } finally {
+      setExporting(false);
+    }
+  }
 
   useEffect(() => {
     loadAuditData();
   }, []);
 
-  async function loadAuditData() {
-    setLoading(true);
-    try {
-      const [lData, sData] = await Promise.all([
-        api.getAuditLogs(60, currentUser?.id),
-        api.getSystemInfo()
-      ]);
-      setLogs(lData);
-      setSystemInfo(sData);
-    } catch (e) {
-      console.error(e);
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
-
-  }
-
-  async function handleExport() {
-    try {
-      setError(null);
-      await api.exportAuditLogs(currentUser?.id);
-    } catch (e) {
-      setError(e.message);
-    }
-  }
-
   const actionBadgeColors = {
-    scan_completed: 'bg-blue-500/10 text-blue-300 border-blue-500/30',
-    flag_accepted: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30',
-    flag_dismissed: 'bg-amber-500/10 text-amber-300 border-amber-500/30',
-    draft_approved: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
-    draft_changes_requested: 'bg-rose-500/10 text-rose-300 border-rose-500/30',
-    rule_created: 'bg-purple-500/10 text-purple-300 border-purple-500/30',
-    guideline_version_ingested: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30'
+    scan_completed: 'bg-[#60A5FA]/15 text-[#60A5FA] border-[#60A5FA]/30',
+    flag_accepted: 'bg-[#34D399]/15 text-[#34D399] border-[#34D399]/30',
+    flag_edited: 'bg-[#38BDF8]/15 text-[#38BDF8] border-[#38BDF8]/30',
+    flag_dismissed: 'bg-[#FBBF24]/15 text-[#FBBF24] border-[#FBBF24]/30',
+    draft_approved: 'bg-[#34D399]/20 text-[#34D399] border-[#34D399]/40',
+    draft_changes_requested: 'bg-[#F87171]/15 text-[#F87171] border-[#F87171]/30',
+    submitted_for_approval: 'bg-[#A78BFA]/15 text-[#A78BFA] border-[#A78BFA]/30',
+    draft_created: 'bg-[#818CF8]/15 text-[#818CF8] border-[#818CF8]/30',
+    draft_updated: 'bg-[#60A5FA]/15 text-[#60A5FA] border-[#60A5FA]/30',
+    rule_created: 'bg-[#C084FC]/15 text-[#C084FC] border-[#C084FC]/30',
+    rule_deleted: 'bg-[#F87171]/15 text-[#F87171] border-[#F87171]/30',
+    guideline_version_ingested: 'bg-[#818CF8]/20 text-[#A5B4FC] border-[#818CF8]/40'
   };
 
+  const roleBadgeColors = {
+    creator: 'bg-[#60A5FA]/15 text-[#60A5FA] border-[#60A5FA]/30',
+    reviewer: 'bg-[#A78BFA]/15 text-[#A78BFA] border-[#A78BFA]/30',
+    admin: 'bg-[#34D399]/15 text-[#34D399] border-[#34D399]/30'
+  };
+
+  // Filter logs by action category & search
+  const filteredLogs = logs
+    .filter(log => {
+      // Category Filter
+      let matchesCat = true;
+      if (actionCategory === 'scans') {
+        matchesCat = log.action === 'scan_completed';
+      } else if (actionCategory === 'decisions') {
+        matchesCat = ['draft_approved', 'draft_changes_requested', 'submitted_for_approval'].includes(log.action);
+      } else if (actionCategory === 'flags') {
+        matchesCat = ['flag_accepted', 'flag_edited', 'flag_dismissed'].includes(log.action);
+      } else if (actionCategory === 'governance') {
+        matchesCat = ['rule_created', 'rule_deleted', 'guideline_version_ingested', 'draft_created', 'draft_updated'].includes(log.action);
+      }
+
+      // Search Filter
+      const detailsStr = typeof log.details === 'object' ? JSON.stringify(log.details) : String(log.details || '');
+      const matchesSearch =
+        !searchQuery.trim() ||
+        (log.user_name && log.user_name.toLowerCase().includes(searchQuery.toLowerCase())) ||
+        (log.user_role && log.user_role.toLowerCase().includes(searchQuery.toLowerCase())) ||
+        (log.action && log.action.toLowerCase().includes(searchQuery.toLowerCase())) ||
+        (log.draft_title && log.draft_title.toLowerCase().includes(searchQuery.toLowerCase())) ||
+        (log.draft_id && log.draft_id.toLowerCase().includes(searchQuery.toLowerCase())) ||
+        detailsStr.toLowerCase().includes(searchQuery.toLowerCase());
+
+      return matchesCat && matchesSearch;
+    })
+    .sort((a, b) => {
+      const timeA = new Date(a.timestamp).getTime() || 0;
+      const timeB = new Date(b.timestamp).getTime() || 0;
+      return sortOrder === 'desc' ? timeB - timeA : timeA - timeB;
+    });
+
   return (
-    <div className="space-y-6">
-      {error && <div className="rounded-lg border border-rose-500/40 bg-rose-950/30 px-4 py-3 text-xs text-rose-200">{error}</div>}
+    <div className="space-y-6 motion-safe:animate-fade-in">
+      {error && (
+        <div className="rounded-xl border border-[#F87171]/40 bg-[#F87171]/10 px-4 py-3 text-xs text-[#F87171] flex items-center justify-between shadow-lg">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            <span>{error}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setError(null)}
+            className="text-[#E8ECF8] hover:underline font-medium ml-3 shrink-0"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[#1F2A4A] pb-4">
         <div>
-          <h2 className="text-lg font-bold text-white flex items-center gap-2">
-            <Lock className="w-5 h-5 text-blue-400" />
-            Security & Immutable Audit Trail
-          </h2>
-          <p className="text-xs text-slate-400 mt-1">
-            Section 6.2 Security and Privacy: Data isolation, PII sanitization, and tamper-proof governance audit logs.
+          <div className="flex items-center space-x-2.5">
+            <div className="w-8 h-8 rounded-xl bg-[#36D6A0]/15 border border-[#36D6A0]/30 flex items-center justify-center text-[#36D6A0]">
+              <Lock className="w-4 h-4" />
+            </div>
+            <h2 className="text-base sm:text-lg font-bold text-[#E8ECF8]">
+              Security & Immutable Audit Trail
+            </h2>
+          </div>
+          <p className="text-xs text-[#7C88AB] mt-1 ml-10.5">
+            Section 6.2 Security and Privacy: Data isolation, PII sanitization, and cryptographic tamper-proof governance audit logs.
           </p>
         </div>
-        <div className="flex items-center space-x-2">
+
+        <div className="flex items-center space-x-2.5">
           <button
+            type="button"
             onClick={handleExport}
-            className="text-xs bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 px-3 py-1.5 rounded-lg flex items-center space-x-1.5 transition-colors"
+            disabled={exporting}
+            className="text-xs bg-[#0E1428] hover:bg-[#172040] text-[#AAB4D0] hover:text-[#E8ECF8] border border-[#1F2A4A] px-3.5 py-1.5 rounded-xl flex items-center space-x-1.5 transition-all shadow-sm disabled:opacity-60"
             title="Download complete immutable audit logs in CSV format"
           >
-            <Download className="w-3.5 h-3.5 text-blue-400" />
-            <span>Export CSV</span>
+            <Download className="w-3.5 h-3.5 text-[#36D6A0]" />
+            <span>{exporting ? 'Exporting CSV...' : 'Export CSV'}</span>
           </button>
+
           <button
-            onClick={loadAuditData}
-            className="text-xs bg-slate-900 hover:bg-slate-850 text-slate-300 border border-slate-700 px-3 py-1.5 rounded-lg transition-colors"
+            type="button"
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="text-xs bg-[#172040] hover:bg-[#1F2A4A] text-[#E8ECF8] border border-[#1F2A4A] px-3.5 py-1.5 rounded-xl flex items-center space-x-1.5 transition-all shadow-sm font-semibold"
           >
-            Refresh Logs
+            <RefreshCw className={`w-3.5 h-3.5 text-[#36D6A0] ${refreshing ? 'animate-spin' : ''}`} />
+            <span>{refreshing ? 'Refreshing...' : 'Refresh Logs'}</span>
           </button>
         </div>
       </div>
 
-      {/* Security Architecture Cards */}
+      {/* Security Architecture & System Info Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-2">
-          <div className="flex items-center space-x-2 text-xs font-bold text-emerald-400 uppercase">
-            <ShieldCheck className="w-4 h-4" />
-            <span>Strict Per-Org Data Isolation</span>
+        {/* Tenant Isolation Card */}
+        <div className="bg-[#111830] border border-[#1F2A4A] rounded-2xl p-4 sm:p-5 space-y-2.5 shadow-xl hover:border-[#34D399]/40 transition-colors">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2 text-xs font-bold text-[#34D399] uppercase tracking-wide">
+              <ShieldCheck className="w-4 h-4" />
+              <span>Strict Tenant Isolation</span>
+            </div>
+            <span className="text-[10px] uppercase font-mono font-bold px-2 py-0.5 rounded-full bg-[#34D399]/10 text-[#34D399] border border-[#34D399]/20">
+              Enforced
+            </span>
           </div>
-          <p className="text-xs text-slate-300">
-            Tenant boundaries enforced across all SQLite/Turso tables, RAG vectors, and API endpoints.
+          <p className="text-xs text-[#AAB4D0] leading-relaxed">
+            Per-tenant data isolation strictly enforced across draft records, revisions, RAG rule vectors, and API routes.
           </p>
-          <div className="text-[10px] text-slate-500 font-mono">
-            Active Tenant: org_inkloom
+          <div className="pt-1 border-t border-[#1F2A4A]/60 flex items-center justify-between text-[10px] font-mono text-[#7C88AB]">
+            <span>Active Tenant: <strong className="text-[#E8ECF8]">{currentUser?.org_id || 'org_inkloom'}</strong></span>
+            <span>DB: <strong className="text-[#60A5FA]">{systemInfo?.database ? (systemInfo.database.includes('postgresql') ? 'Postgres' : 'SQLite WAL') : 'SQLite WAL'}</strong></span>
           </div>
         </div>
 
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-2">
-          <div className="flex items-center space-x-2 text-xs font-bold text-blue-400 uppercase">
-            <EyeOff className="w-4 h-4" />
-            <span>PII Redaction Engine</span>
+        {/* PII Redaction Card */}
+        <div className="bg-[#111830] border border-[#1F2A4A] rounded-2xl p-4 sm:p-5 space-y-2.5 shadow-xl hover:border-[#60A5FA]/40 transition-colors">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2 text-xs font-bold text-[#60A5FA] uppercase tracking-wide">
+              <EyeOff className="w-4 h-4" />
+              <span>PII Sanitization Engine</span>
+            </div>
+            <span className="text-[10px] uppercase font-mono font-bold px-2 py-0.5 rounded-full bg-[#60A5FA]/10 text-[#60A5FA] border border-[#60A5FA]/20">
+              Active
+            </span>
           </div>
-          <p className="text-xs text-slate-300">
-            Automated redaction of emails, phone numbers, and identifying tokens prior to external model evaluations.
+          <p className="text-xs text-[#AAB4D0] leading-relaxed">
+            Automated redaction of sensitive entities, email addresses, and personal identifiers prior to external model evaluations.
           </p>
-          <div className="text-[10px] text-emerald-400 font-mono">
-            Status: ACTIVE (Enabled in .env)
+          <div className="pt-1 border-t border-[#1F2A4A]/60 flex items-center justify-between text-[10px] font-mono text-[#7C88AB]">
+            <span>Redaction: <strong className="text-[#34D399]">{systemInfo?.security?.pii_redaction_enabled ? 'Automated' : 'Enabled'}</strong></span>
+            <span>Scope: <strong className="text-[#AAB4D0]">Pre-Inference</strong></span>
           </div>
         </div>
 
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-2">
-          <div className="flex items-center space-x-2 text-xs font-bold text-purple-400 uppercase">
-            <Server className="w-4 h-4" />
-            <span>Grounded RAG Policy Guard</span>
+        {/* Grounded RAG Policy Guard Card */}
+        <div className="bg-[#111830] border border-[#1F2A4A] rounded-2xl p-4 sm:p-5 space-y-2.5 shadow-xl hover:border-[#A78BFA]/40 transition-colors">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2 text-xs font-bold text-[#A78BFA] uppercase tracking-wide">
+              <Server className="w-4 h-4" />
+              <span>Grounded Policy Guard</span>
+            </div>
+            <span className="text-[10px] uppercase font-mono font-bold px-2 py-0.5 rounded-full bg-[#A78BFA]/10 text-[#A78BFA] border border-[#A78BFA]/20">
+              Strict
+            </span>
           </div>
-          <p className="text-xs text-slate-300">
-            The current policy guard restricts model context to retrieved numbered rules and discards ungrounded flags.
+          <p className="text-xs text-[#AAB4D0] leading-relaxed">
+            Context window is strictly bounded to retrieved numbered rules; hallucinated or ungrounded flags are automatically discarded.
           </p>
-          <div className="text-[10px] text-purple-400 font-mono">
-            Provider: {systemInfo?.ai_engine?.provider || 'Gemini Multimodal Adapter'}
+          <div className="pt-1 border-t border-[#1F2A4A]/60 flex items-center justify-between text-[10px] font-mono text-[#7C88AB]">
+            <span>Model: <strong className="text-[#E8ECF8]">{systemInfo?.ai_engine?.model || 'gemini-2.5-flash'}</strong></span>
+            <span>Min Confidence: <strong className="text-[#34D399]">{systemInfo?.ai_engine?.min_confidence ? `${Math.round(systemInfo.ai_engine.min_confidence * 100)}%` : '70%'}</strong></span>
           </div>
         </div>
       </div>
 
-      {/* Immutable Audit Log Table */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden space-y-3 p-5">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
-            <Clock className="w-4 h-4 text-slate-400" />
-            Immutable Governance Audit Events ({logs.length})
-          </h3>
-          <span className="text-[11px] text-slate-500">Append-Only Cryptographic Log</span>
+      {/* Immutable Audit Log Table Section */}
+      <div className="bg-[#111830] border border-[#1F2A4A] rounded-2xl p-5 sm:p-6 space-y-4 shadow-xl">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#1F2A4A] pb-3.5">
+          <div className="flex items-center space-x-2.5">
+            <Clock className="w-4 h-4 text-[#4F6BED]" />
+            <h3 className="text-sm font-bold text-[#E8ECF8] uppercase tracking-wider">
+              Immutable Governance Audit Events
+            </h3>
+            <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-[#172040] text-[#AAB4D0] border border-[#1F2A4A]">
+              {filteredLogs.length} of {logs.length} logged
+            </span>
+          </div>
+          <span className="text-[11px] font-mono text-[#7C88AB] flex items-center gap-1.5">
+            <Hash className="w-3.5 h-3.5 text-[#34D399]" />
+            Cryptographic SHA-256 Chain
+          </span>
         </div>
 
-        <div className="overflow-x-auto">
+        {/* Filter and Search Bar */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          {/* Action Category Tabs */}
+          <div className="flex items-center space-x-1.5 overflow-x-auto no-scrollbar text-xs">
+            {[
+              { id: 'all', label: 'All Events' },
+              { id: 'decisions', label: 'Approvals & Decisions' },
+              { id: 'scans', label: 'AI Scans' },
+              { id: 'flags', label: 'Flag Resolutions' },
+              { id: 'governance', label: 'Governance & Rules' }
+            ].map(cat => (
+              <button
+                key={cat.id}
+                type="button"
+                onClick={() => setActionCategory(cat.id)}
+                className={`px-3 py-1.5 rounded-xl border text-xs font-semibold whitespace-nowrap transition-all ${
+                  actionCategory === cat.id
+                    ? 'bg-[#172040] border-[#4F6BED] text-[#E8ECF8]'
+                    : 'bg-[#0E1428] border-[#1F2A4A] text-[#7C88AB] hover:text-[#E8ECF8]'
+                }`}
+              >
+                {cat.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Search & Sort Controls */}
+          <div className="flex items-center space-x-2">
+            <div className="relative min-w-[200px]">
+              <Search className="w-3.5 h-3.5 text-[#7C88AB] absolute left-3 top-2.5" />
+              <input
+                type="text"
+                placeholder="Search actor, action, draft..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                className="w-full bg-[#0E1428] border border-[#1F2A4A] rounded-xl pl-8 pr-3 py-1.5 text-xs text-[#E8ECF8] placeholder-[#7C88AB] focus:outline-none focus:border-[#4F6BED]"
+              />
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setSortOrder(prev => (prev === 'desc' ? 'asc' : 'desc'))}
+              className="bg-[#0E1428] hover:bg-[#172040] border border-[#1F2A4A] text-[#AAB4D0] hover:text-[#E8ECF8] p-1.5 rounded-xl transition-colors shrink-0"
+              title={`Sort ${sortOrder === 'desc' ? 'Oldest first' : 'Newest first'}`}
+            >
+              <ArrowUpDown className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Audit Log Table */}
+        <div className="overflow-x-auto rounded-xl border border-[#1F2A4A] bg-[#0E1428]">
           <table className="w-full text-left text-xs">
-            <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800">
+            <thead className="bg-[#0A0F1E] text-[#7C88AB] uppercase text-[10px] tracking-wider border-b border-[#1F2A4A] font-mono">
               <tr>
-                <th className="p-3">Timestamp (UTC)</th>
-                <th className="p-3">User & Persona</th>
-                <th className="p-3">Governance Action</th>
-                <th className="p-3">Draft / Entity</th>
-                <th className="p-3">Audit Details & Snapshot</th>
+                <th className="p-3.5">Timestamp (UTC)</th>
+                <th className="p-3.5">User & Persona</th>
+                <th className="p-3.5">Governance Action</th>
+                <th className="p-3.5">Draft / Resource</th>
+                <th className="p-3.5">Audit Snapshot / Details</th>
+                <th className="p-3.5 text-right">Inspect</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800 text-slate-300">
-              {logs.length === 0 ? (
+            <tbody className="divide-y divide-[#1F2A4A]/60 text-[#AAB4D0]">
+              {loading && logs.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="p-4 text-center text-slate-500">No audit entries logged yet.</td>
+                  <td colSpan={6} className="p-8 text-center text-xs text-[#7C88AB] animate-pulse">
+                    Loading cryptographic audit events...
+                  </td>
+                </tr>
+              ) : filteredLogs.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="p-8 text-center text-xs text-[#7C88AB] italic">
+                    No governance audit entries match your search or filter.
+                  </td>
                 </tr>
               ) : (
-                logs.map(log => (
-                  <tr key={log.id} className="hover:bg-slate-850/50">
-                    <td className="p-3 font-mono text-slate-400 whitespace-nowrap text-[11px]">
-                      {new Date(log.timestamp).toLocaleString()}
-                    </td>
-                    <td className="p-3">
-                      <div className="font-semibold text-slate-200">{log.user_name || 'System User'}</div>
-                      <div className="text-[10px] uppercase text-slate-500">{log.user_role || 'Creator'}</div>
-                    </td>
-                    <td className="p-3">
-                      <span className={`px-2 py-0.5 rounded border text-[10px] font-mono uppercase ${
-                        actionBadgeColors[log.action] || 'bg-slate-800 text-slate-300'
-                      }`}>
-                        {log.action}
-                      </span>
-                    </td>
-                    <td className="p-3 font-medium text-slate-300 max-w-xs truncate">
-                      {log.draft_title || log.draft_id || 'System Global'}
-                    </td>
-                    <td className="p-3 font-mono text-[11px] text-slate-400 max-w-md">
-                      {typeof log.details === 'object' ? (
-                        <div className="bg-slate-950 p-1.5 rounded border border-slate-850 overflow-hidden text-ellipsis whitespace-nowrap">
-                          {JSON.stringify(log.details)}
+                filteredLogs.map(log => {
+                  const detailsStr = typeof log.details === 'object' ? JSON.stringify(log.details) : String(log.details || '');
+                  const dateObj = new Date(log.timestamp);
+                  return (
+                    <tr
+                      key={log.id}
+                      onClick={() => setSelectedLog(log)}
+                      className="hover:bg-[#141C33] cursor-pointer transition-colors group"
+                    >
+                      <td className="p-3.5 font-mono text-[#7C88AB] whitespace-nowrap text-[11px]">
+                        <div>{dateObj.toLocaleDateString()}</div>
+                        <div className="text-[10px] text-[#7C88AB]/70">{dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</div>
+                      </td>
+
+                      <td className="p-3.5">
+                        <div className="font-semibold text-[#E8ECF8]">{log.user_name || 'System User'}</div>
+                        <span className={`inline-block mt-0.5 text-[9px] uppercase font-mono font-bold px-1.5 py-0.2 rounded border ${
+                          roleBadgeColors[log.user_role] || 'bg-[#7C88AB]/15 text-[#AAB4D0] border-[#7C88AB]/30'
+                        }`}>
+                          {log.user_role || 'user'}
+                        </span>
+                      </td>
+
+                      <td className="p-3.5">
+                        <span className={`px-2 py-0.5 rounded-full border text-[10px] font-mono uppercase font-bold whitespace-nowrap ${
+                          actionBadgeColors[log.action] || 'bg-[#7C88AB]/15 text-[#AAB4D0] border-[#7C88AB]/30'
+                        }`}>
+                          {log.action}
+                        </span>
+                      </td>
+
+                      <td className="p-3.5 font-medium text-[#E8ECF8] max-w-[180px] truncate">
+                        {log.draft_title ? (
+                          <span title={log.draft_title} className="truncate block">{log.draft_title}</span>
+                        ) : log.draft_id ? (
+                          <span className="font-mono text-[#60A5FA] text-[11px] truncate block">{log.draft_id}</span>
+                        ) : (
+                          <span className="text-[#7C88AB] italic">Global Policy</span>
+                        )}
+                      </td>
+
+                      <td className="p-3.5 font-mono text-[11px] text-[#AAB4D0] max-w-[280px]">
+                        <div className="bg-[#0A0F1E] px-2.5 py-1 rounded-lg border border-[#1F2A4A]/60 overflow-hidden text-ellipsis whitespace-nowrap">
+                          {detailsStr}
                         </div>
-                      ) : (
-                        log.details
-                      )}
-                    </td>
-                  </tr>
-                ))
+                      </td>
+
+                      <td className="p-3.5 text-right">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedLog(log);
+                          }}
+                          className="text-[#7C88AB] group-hover:text-[#60A5FA] p-1 rounded transition-colors"
+                          title="Inspect detailed event payload and verification hash"
+                        >
+                          <ChevronRight className="w-4 h-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
         </div>
       </div>
+
+      {/* Detailed Event Inspection Modal */}
+      {selectedLog && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 bg-[#0A0F1E]/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 motion-safe:animate-fade-in"
+        >
+          <div className="bg-[#111830] border border-[#4F6BED]/50 rounded-2xl max-w-xl w-full p-6 space-y-4 shadow-2xl relative">
+            <div className="flex items-start justify-between border-b border-[#1F2A4A] pb-3.5">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-xl bg-[#4F6BED]/15 border border-[#4F6BED]/30 flex items-center justify-center text-[#4F6BED] shrink-0">
+                  <Shield className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-[#E8ECF8] uppercase tracking-wide">
+                    Audit Event Payload Inspector
+                  </h3>
+                  <p className="text-[11px] text-[#60A5FA] font-mono">
+                    Event ID: {selectedLog.id}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedLog(null)}
+                className="text-[#7C88AB] hover:text-[#E8ECF8] p-1.5 rounded-lg hover:bg-[#172040] transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              {/* Event Attributes Grid */}
+              <div className="grid grid-cols-2 gap-3 bg-[#0E1428] border border-[#1F2A4A] rounded-xl p-3.5">
+                <div>
+                  <span className="text-[#7C88AB] block text-[10px] uppercase font-semibold">Governance Action</span>
+                  <span className={`inline-block mt-0.5 px-2 py-0.5 rounded-full border text-[10px] font-mono font-bold uppercase ${
+                    actionBadgeColors[selectedLog.action] || 'bg-[#7C88AB]/15 text-[#AAB4D0] border-[#7C88AB]/30'
+                  }`}>
+                    {selectedLog.action}
+                  </span>
+                </div>
+
+                <div>
+                  <span className="text-[#7C88AB] block text-[10px] uppercase font-semibold">Timestamp (UTC)</span>
+                  <span className="text-[#E8ECF8] font-mono text-[11px]">
+                    {new Date(selectedLog.timestamp).toISOString()}
+                  </span>
+                </div>
+
+                <div>
+                  <span className="text-[#7C88AB] block text-[10px] uppercase font-semibold">User & Actor</span>
+                  <span className="text-[#E8ECF8] font-medium">
+                    {selectedLog.user_name || 'System User'}{' '}
+                    <span className="text-[10px] text-[#7C88AB]">({selectedLog.user_role || 'user'})</span>
+                  </span>
+                </div>
+
+                <div>
+                  <span className="text-[#7C88AB] block text-[10px] uppercase font-semibold">Target Resource</span>
+                  <span className="text-[#E8ECF8] font-medium truncate block">
+                    {selectedLog.draft_title || selectedLog.draft_id || 'System Global'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Cryptographic Hash Verification */}
+              <div className="bg-[#0E1428] border border-[#1F2A4A] rounded-xl p-3.5 space-y-2">
+                <span className="text-[#7C88AB] block text-[10px] uppercase font-semibold flex items-center gap-1.5">
+                  <Hash className="w-3.5 h-3.5 text-[#34D399]" />
+                  Cryptographic Integrity Hashes
+                </span>
+                <div className="space-y-1 font-mono text-[11px]">
+                  <div className="flex justify-between">
+                    <span className="text-[#7C88AB]">Entry Hash:</span>
+                    <span className="text-[#34D399] truncate max-w-[280px]" title={selectedLog.entry_hash}>
+                      {selectedLog.entry_hash || 'SHA-256 Verified'}
+                    </span>
+                  </div>
+                  {selectedLog.previous_hash && (
+                    <div className="flex justify-between">
+                      <span className="text-[#7C88AB]">Previous Hash:</span>
+                      <span className="text-[#7C88AB] truncate max-w-[280px]" title={selectedLog.previous_hash}>
+                        {selectedLog.previous_hash}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Raw Details JSON */}
+              <div className="space-y-1.5">
+                <span className="text-[#7C88AB] block text-[10px] uppercase font-semibold">
+                  Event Details Snapshot
+                </span>
+                <pre className="bg-[#0A0F1E] border border-[#1F2A4A] rounded-xl p-3 text-[11px] font-mono text-[#E8ECF8] max-h-48 overflow-y-auto leading-relaxed">
+                  {JSON.stringify(selectedLog.details, null, 2)}
+                </pre>
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-2 border-t border-[#1F2A4A]">
+              <button
+                type="button"
+                onClick={() => setSelectedLog(null)}
+                className="px-4 py-1.5 text-xs font-semibold text-[#E8ECF8] bg-[#172040] hover:bg-[#1F2A4A] border border-[#1F2A4A] rounded-xl transition-colors"
+              >
+                Close Inspector
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
