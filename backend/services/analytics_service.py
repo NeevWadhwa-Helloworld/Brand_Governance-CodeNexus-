@@ -108,7 +108,7 @@ class AnalyticsService:
             # 7. Daily compliance & activity time-series trends
             cursor.execute("""
                 SELECT substr(r.created_at, 1, 10) as scan_date,
-                       ROUND(AVG(r.compliance_score), 1) as avg_compliance,
+                       ROUND(CAST(AVG(r.compliance_score) AS NUMERIC), 1) as avg_compliance,
                        COUNT(DISTINCT r.id) as scan_count,
                        COUNT(f.id) as flag_count
                 FROM revisions r
@@ -152,7 +152,7 @@ class AnalyticsService:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT substr(r.created_at, 1, 10) AS date,
-                       ROUND(AVG(r.compliance_score), 1) AS compliance_score,
+                       ROUND(CAST(AVG(r.compliance_score) AS NUMERIC), 1) AS compliance_score,
                        COUNT(DISTINCT r.id) AS scans,
                        COUNT(f.id) AS flags
                 FROM revisions r
