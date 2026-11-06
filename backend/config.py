@@ -56,10 +56,11 @@ class Settings:
 
 settings = Settings()
 
+deployed_frontend_origin = "https://brand-governance-code-nexu.vercel.app"
+if deployed_frontend_origin not in settings.CORS_ORIGINS:
+    settings.CORS_ORIGINS.append(deployed_frontend_origin)
+
 if settings.ENVIRONMENT.lower() in {"production", "staging"}:
-    deployed_frontend_origin = "https://brand-governance-code-nexu.vercel.app"
-    if deployed_frontend_origin not in settings.CORS_ORIGINS:
-        settings.CORS_ORIGINS.append(deployed_frontend_origin)
     if len(settings.SECRET_KEY) < 32:
         raise RuntimeError("SECRET_KEY must be at least 32 characters outside development.")
     if not settings.CORS_ORIGINS or "*" in settings.CORS_ORIGINS:
