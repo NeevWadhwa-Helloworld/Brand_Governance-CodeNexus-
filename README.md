@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Intelligent Brand-Governance Platform
 ### Problem Statement by Inkloom AI | Round 1, 2 & 3 Full Implementation
 **Team:** DoraAIemon  
