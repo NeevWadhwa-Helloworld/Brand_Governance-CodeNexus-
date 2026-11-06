@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { api, mediaUrl } from '../api';
 import {
-  Sparkles, Check, X, Edit3, Send, Upload, RefreshCw, AlertTriangle,
-  CheckCircle2, FileText, Image as ImageIcon, ShieldAlert, Info, ArrowRight, History
+  Sparkles, Check, X, Edit3, Send, RefreshCw, AlertTriangle,
+  CheckCircle2, FileText, Image as ImageIcon, History,
+  TestTube2, ImageOff
 } from 'lucide-react';
 
 export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) {
@@ -23,7 +24,12 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
   const [mediaTranscript, setMediaTranscript] = useState('');
   const [isEditingDraft, setIsEditingDraft] = useState(false);
   const [editDraftText, setEditDraftText] = useState('');
+  const [activeFlagId, setActiveFlagId] = useState(null);
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [failedImageDraftId, setFailedImageDraftId] = useState(null);
   const mediaElementRef = useRef(null);
+
+  const imageLoadError = failedImageDraftId === (currentDraft?.id || 'default');
 
   useEffect(() => {
     loadDrafts();
@@ -195,13 +201,37 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
   const complianceScore = latestRev?.compliance_score ?? 100;
   const needsPolicyReview = latestRev?.policy_coverage_status === 'needs_review';
 
-  // Render text with dynamic interactive highlight spans
+  // Categories present in pending flags for dynamic filter pills
+  const existingCategories = Array.from(new Set(pendingFlags.map(f => f.category).filter(Boolean)));
+  const displayedPendingFlags = categoryFilter === 'all'
+    ? pendingFlags
+    : pendingFlags.filter(f => f.category === categoryFilter);
+
+  const categoryBadgeColors = {
+    tone: 'bg-[#6366F1]/15 text-[#818CF8] border-[#6366F1]/30',
+    terminology: 'bg-[#FBBF24]/15 text-[#FBBF24] border-[#FBBF24]/30',
+    facts: 'bg-[#F87171]/15 text-[#F87171] border-[#F87171]/30',
+    claims: 'bg-[#A855F7]/15 text-[#C084FC] border-[#A855F7]/30',
+    color: 'bg-[#3B82F6]/15 text-[#60A5FA] border-[#3B82F6]/30',
+    accessibility: 'bg-[#2DD4BF]/15 text-[#2DD4BF] border-[#2DD4BF]/30'
+  };
+
+  const categoryBorderAccents = {
+    tone: 'border-l-4 border-l-[#818CF8]',
+    terminology: 'border-l-4 border-l-[#FBBF24]',
+    facts: 'border-l-4 border-l-[#F87171]',
+    claims: 'border-l-4 border-l-[#C084FC]',
+    color: 'border-l-4 border-l-[#60A5FA]',
+    accessibility: 'border-l-4 border-l-[#2DD4BF]'
+  };
+
+  // Render text with dynamic interactive highlight spans linked to review panel
   const renderHighlightedText = () => {
     if (!latestRev?.content_text) return null;
     const text = latestRev.content_text;
 
     if (pendingFlags.length === 0) {
-      return <p className="whitespace-pre-wrap leading-relaxed text-slate-200">{text}</p>;
+      return <p className="whitespace-pre-wrap leading-relaxed text-[#E8ECF8] text-xs sm:text-sm">{text}</p>;
     }
 
     // Collect all intervals for pending flags
@@ -230,7 +260,7 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
     }
 
     if (intervals.length === 0) {
-      return <p className="whitespace-pre-wrap leading-relaxed text-slate-200">{text}</p>;
+      return <p className="whitespace-pre-wrap leading-relaxed text-[#E8ECF8] text-xs sm:text-sm">{text}</p>;
     }
 
     // Sort intervals by start index, take longest if overlapping
@@ -260,13 +290,25 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
     }
 
     return (
-      <div className="whitespace-pre-wrap leading-relaxed text-slate-200">
+      <div className="whitespace-pre-wrap leading-relaxed text-[#E8ECF8] text-xs sm:text-sm">
         {segments.map((seg, i) => {
           if (seg.flagged) {
+            const isHighlighted = activeFlagId === seg.flag.id;
             return (
               <mark
                 key={i}
-                className="bg-rose-500/25 border-b-2 border-rose-400 text-rose-200 px-1 py-0.5 rounded cursor-pointer hover:bg-rose-500/40 transition-colors"
+                onMouseEnter={() => setActiveFlagId(seg.flag.id)}
+                onMouseLeave={() => setActiveFlagId(null)}
+                onClick={() => {
+                  setActiveFlagId(seg.flag.id);
+                  const el = document.getElementById(`flag-${seg.flag.id}`);
+                  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                }}
+                className={`px-1 py-0.5 rounded cursor-pointer transition-all font-medium border-b-2 ${
+                  isHighlighted
+                    ? 'bg-[#F87171]/40 border-[#F87171] text-white ring-2 ring-[#F87171]/50 shadow-md'
+                    : 'bg-[#F87171]/20 border-[#F87171] text-[#FCA5A5] hover:bg-[#F87171]/35'
+                }`}
                 title={`Rule ${seg.flag.rule_id} (${seg.flag.category}): ${seg.flag.explanation}`}
               >
                 {seg.text}
@@ -280,70 +322,104 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-      {/* Left Sidebar: Draft Selection & Creation */}
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+      {/* Left Column: Workspaces & Drafts List */}
       <div className="lg:col-span-3 space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400">
-            Workspaces & Drafts
-          </h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-xs font-bold uppercase tracking-wider text-[#AAB4D0]">
+              Workspaces & Drafts
+            </h2>
+            <span className="text-[10px] font-mono font-semibold px-1.5 py-0.2 rounded-full bg-[#111830] border border-[#1F2A4A] text-[#7C88AB]">
+              {drafts.length}
+            </span>
+          </div>
           <button
             onClick={() => setIsCreatingNew(!isCreatingNew)}
-            className="text-xs bg-blue-600 hover:bg-blue-500 text-white px-2.5 py-1 rounded font-medium transition-colors"
+            className="text-xs bg-[#4F6BED] hover:bg-[#6479F2] text-white px-2.5 py-1 rounded-lg font-medium transition-colors shadow-sm shadow-[#4F6BED]/20"
           >
             {isCreatingNew ? 'Cancel' : '+ New Draft'}
           </button>
-          <button
-            type="button"
-            onClick={() => setNewType('audio')}
-            className={`flex-1 py-1 rounded border ${newType === 'audio' ? 'bg-blue-600 border-blue-500 text-white' : 'border-slate-700 text-slate-400'}`}
-          >
-            Audio
-          </button>
-          <button
-            type="button"
-            onClick={() => setNewType('video')}
-            className={`flex-1 py-1 rounded border ${newType === 'video' ? 'bg-blue-600 border-blue-500 text-white' : 'border-slate-700 text-slate-400'}`}
-          >
-            Video
-          </button>
         </div>
 
-        {/* New Draft Form */}
+        {/* New Draft Form Modal/Card */}
         {isCreatingNew && (
-          <form onSubmit={handleCreateDraft} className="bg-slate-900 border border-blue-500/40 rounded-xl p-4 space-y-3 shadow-lg">
-            <h3 className="text-xs font-bold text-blue-400 uppercase">Create New Draft</h3>
-            <div className="flex space-x-2 text-xs">
+          <form onSubmit={handleCreateDraft} className="bg-[#111830] border border-[#4F6BED]/50 rounded-2xl p-4 space-y-3.5 shadow-xl">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-bold text-[#E8ECF8] uppercase flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-[#4F6BED]" /> Create New Draft
+              </h3>
+              <span className="text-[10px] text-[#2DD4BF] font-mono">Two-Layer Scanner</span>
+            </div>
+
+            {/* 4-way Content Type Segmented Selector */}
+            <div className="grid grid-cols-2 gap-1.5 text-xs">
               <button
                 type="button"
                 onClick={() => setNewType('text')}
-                className={`flex-1 py-1 rounded border ${newType === 'text' ? 'bg-blue-600 border-blue-500 text-white' : 'border-slate-700 text-slate-400'}`}
+                className={`py-1.5 px-2 rounded-lg border text-center transition-all flex items-center justify-center gap-1.5 ${
+                  newType === 'text'
+                    ? 'bg-[#172040] border-[#4F6BED] text-[#E8ECF8] font-semibold shadow-sm'
+                    : 'bg-[#0E1428] border-[#1F2A4A] text-[#7C88AB] hover:text-[#E8ECF8]'
+                }`}
               >
-                Text Copy
+                <FileText className="w-3.5 h-3.5 text-[#4F6BED]" />
+                <span>Text Copy</span>
               </button>
               <button
                 type="button"
                 onClick={() => setNewType('image')}
-                className={`flex-1 py-1 rounded border ${newType === 'image' ? 'bg-blue-600 border-blue-500 text-white' : 'border-slate-700 text-slate-400'}`}
+                className={`py-1.5 px-2 rounded-lg border text-center transition-all flex items-center justify-center gap-1.5 ${
+                  newType === 'image'
+                    ? 'bg-[#172040] border-[#4F6BED] text-[#E8ECF8] font-semibold shadow-sm'
+                    : 'bg-[#0E1428] border-[#1F2A4A] text-[#7C88AB] hover:text-[#E8ECF8]'
+                }`}
               >
-                Visual Banner
+                <ImageIcon className="w-3.5 h-3.5 text-[#A78BFA]" />
+                <span>Banner Image</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setNewType('audio')}
+                className={`py-1.5 px-2 rounded-lg border text-center transition-all flex items-center justify-center gap-1.5 ${
+                  newType === 'audio'
+                    ? 'bg-[#172040] border-[#4F6BED] text-[#E8ECF8] font-semibold shadow-sm'
+                    : 'bg-[#0E1428] border-[#1F2A4A] text-[#7C88AB] hover:text-[#E8ECF8]'
+                }`}
+              >
+                <FileText className="w-3.5 h-3.5 text-[#FBBF24]" />
+                <span>Audio Track</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setNewType('video')}
+                className={`py-1.5 px-2 rounded-lg border text-center transition-all flex items-center justify-center gap-1.5 ${
+                  newType === 'video'
+                    ? 'bg-[#172040] border-[#4F6BED] text-[#E8ECF8] font-semibold shadow-sm'
+                    : 'bg-[#0E1428] border-[#1F2A4A] text-[#7C88AB] hover:text-[#E8ECF8]'
+                }`}
+              >
+                <FileText className="w-3.5 h-3.5 text-[#F87171]" />
+                <span>Video Content</span>
               </button>
             </div>
+
             <input
               type="text"
               placeholder="Draft title..."
               value={newTitle}
               onChange={e => setNewTitle(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500"
+              className="w-full bg-[#0E1428] border border-[#1F2A4A] rounded-xl px-3 py-2 text-xs text-[#E8ECF8] placeholder-[#7C88AB] focus:outline-none focus:border-[#4F6BED] transition-colors"
               required
             />
+
             {newType === 'text' ? (
               <textarea
                 placeholder="Write or paste draft content..."
                 value={newContent}
                 onChange={e => setNewContent(e.target.value)}
                 rows={4}
-                className="w-full bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500"
+                className="w-full bg-[#0E1428] border border-[#1F2A4A] rounded-xl px-3 py-2 text-xs text-[#E8ECF8] placeholder-[#7C88AB] focus:outline-none focus:border-[#4F6BED] transition-colors"
                 required
               />
             ) : newType === 'image' ? (
@@ -351,7 +427,7 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
                 type="file"
                 accept="image/*"
                 onChange={e => setSelectedFile(e.target.files[0])}
-                className="w-full text-xs text-slate-400 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:bg-blue-600 file:text-white"
+                className="w-full text-xs text-[#AAB4D0] file:mr-2 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-xs file:bg-[#4F6BED] file:text-white file:font-medium hover:file:bg-[#6479F2] file:cursor-pointer"
                 required
               />
             ) : (
@@ -360,7 +436,7 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
                   type="file"
                   accept={newType === 'audio' ? 'audio/*' : 'video/*'}
                   onChange={e => setSelectedFile(e.target.files[0])}
-                  className="w-full text-xs text-slate-400 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:bg-blue-600 file:text-white"
+                  className="w-full text-xs text-[#AAB4D0] file:mr-2 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-xs file:bg-[#4F6BED] file:text-white file:font-medium hover:file:bg-[#6479F2] file:cursor-pointer"
                   required
                 />
                 <textarea
@@ -368,61 +444,72 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
                   value={mediaTranscript}
                   onChange={e => setMediaTranscript(e.target.value)}
                   rows={3}
-                  className="w-full bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500"
+                  className="w-full bg-[#0E1428] border border-[#1F2A4A] rounded-xl px-3 py-2 text-xs text-[#E8ECF8] placeholder-[#7C88AB] focus:outline-none focus:border-[#4F6BED] transition-colors"
                 />
               </div>
             )}
+
             <button
               type="submit"
-              className="w-full bg-blue-600 hover:bg-blue-500 text-white py-1.5 rounded text-xs font-medium transition-colors"
+              className="w-full bg-[#4F6BED] hover:bg-[#6479F2] text-white py-2 rounded-xl text-xs font-semibold shadow-md shadow-[#4F6BED]/20 transition-all flex items-center justify-center gap-1.5"
             >
-              Scan & Submit Draft
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>Scan & Submit Draft</span>
             </button>
           </form>
         )}
 
         {/* Draft List */}
         <div className="space-y-2">
+          {drafts.length === 0 && !loading && (
+            <div className="p-4 rounded-xl border border-[#1F2A4A] bg-[#111830] text-center text-xs text-[#7C88AB]">
+              No drafts created yet. Click "+ New Draft" to begin.
+            </div>
+          )}
           {drafts.map(d => {
             const isSelected = selectedDraftId === d.id;
             const statusStyles = {
-              'Submitted': 'bg-slate-700 text-slate-200',
-              'Scanned': 'bg-blue-500/20 text-blue-300 border-blue-500/30',
-              'In Revision': 'bg-amber-500/20 text-amber-300 border-amber-500/30',
-              'Pending Approval': 'bg-purple-500/20 text-purple-300 border-purple-500/30',
-              'Approved': 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
-              'Changes Requested': 'bg-rose-500/20 text-rose-300 border-rose-500/30'
+              'Submitted': 'bg-[#7C88AB]/15 text-[#AAB4D0] border-[#7C88AB]/30',
+              'Scanned': 'bg-[#60A5FA]/15 text-[#60A5FA] border-[#60A5FA]/30',
+              'In Revision': 'bg-[#FBBF24]/15 text-[#FBBF24] border-[#FBBF24]/30',
+              'Pending Approval': 'bg-[#A78BFA]/15 text-[#A78BFA] border-[#A78BFA]/30',
+              'Approved': 'bg-[#34D399]/15 text-[#34D399] border-[#34D399]/30',
+              'Changes Requested': 'bg-[#F87171]/15 text-[#F87171] border-[#F87171]/30'
             };
 
             return (
               <div
                 key={d.id}
-                onClick={() => setSelectedDraftId(d.id)}
-                className={`p-3 rounded-xl border cursor-pointer transition-all ${
+                onClick={() => {
+                  setSelectedDraftId(d.id);
+                  setActiveFlagId(null);
+                  setCategoryFilter('all');
+                }}
+                className={`p-3.5 rounded-xl border cursor-pointer transition-all ${
                   isSelected
-                    ? 'bg-slate-900 border-blue-500/60 shadow-md ring-1 ring-blue-500/20'
-                    : 'bg-slate-900/60 border-slate-800 hover:border-slate-700'
+                    ? 'bg-[#172040] border-[#4F6BED]/60 shadow-md shadow-[#4F6BED]/10 ring-1 ring-[#4F6BED]/30'
+                    : 'bg-[#111830] border-[#1F2A4A] hover:border-[#2D3A63] hover:bg-[#141C33]'
                 }`}
               >
                 <div className="flex items-start justify-between gap-2">
-                  <div className="flex items-center space-x-2">
+                  <div className="flex items-center space-x-2 min-w-0">
                     {d.content_type === 'text' ? (
-                      <FileText className="w-4 h-4 text-blue-400 shrink-0" />
+                      <FileText className="w-4 h-4 text-[#4F6BED] shrink-0" />
                     ) : d.content_type === 'audio' ? (
-                      <FileText className="w-4 h-4 text-amber-400 shrink-0" />
+                      <FileText className="w-4 h-4 text-[#FBBF24] shrink-0" />
                     ) : d.content_type === 'video' ? (
-                      <FileText className="w-4 h-4 text-rose-400 shrink-0" />
+                      <FileText className="w-4 h-4 text-[#F87171] shrink-0" />
                     ) : (
-                      <ImageIcon className="w-4 h-4 text-purple-400 shrink-0" />
+                      <ImageIcon className="w-4 h-4 text-[#A78BFA] shrink-0" />
                     )}
-                    <span className="text-xs font-medium text-slate-200 line-clamp-1">{d.title}</span>
+                    <span className="text-xs font-semibold text-[#E8ECF8] truncate">{d.title}</span>
                   </div>
                 </div>
-                <div className="mt-2 flex items-center justify-between text-[11px]">
-                  <span className={`px-2 py-0.5 rounded-full border text-[10px] font-medium ${statusStyles[d.status] || 'text-slate-400'}`}>
+                <div className="mt-2.5 flex items-center justify-between text-[11px]">
+                  <span className={`px-2 py-0.5 rounded-full border text-[10px] font-semibold ${statusStyles[d.status] || 'text-[#7C88AB] border-[#1F2A4A]'}`}>
                     {d.status}
                   </span>
-                  <span className="text-slate-500 text-[10px]">
+                  <span className="text-[#7C88AB] text-[10px] font-mono">
                     v{d.current_version} • {new Date(d.updated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </span>
                 </div>
@@ -436,258 +523,318 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
       <div className="lg:col-span-5 space-y-4">
         {currentDraft ? (
           <>
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
-            {/* Draft Header */}
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3">
-              <div>
-                <h3 className="text-base font-bold text-white flex items-center gap-2">
-                  {currentDraft.title}
-                  <span className="text-xs font-normal text-slate-400">
-                    (Revision v{currentDraft.current_version})
-                  </span>
-                </h3>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Author: <span className="text-slate-200 font-medium">{currentDraft.author_name || 'Unknown creator'}</span>
-                </p>
-              </div>
-
-              {/* Action Buttons */}
-              <div className="flex items-center space-x-2">
-                {currentDraft.content_type === 'text' && (
-                  <button
-                    onClick={() => {
-                      if (!isEditingDraft && latestRev?.content_text) {
-                        setEditDraftText(latestRev.content_text);
-                      }
-                      setIsEditingDraft(!isEditingDraft);
-                    }}
-                    className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-                      isEditingDraft
-                        ? 'bg-blue-600 text-white border-blue-500'
-                        : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
-                    }`}
-                  >
-                    <Edit3 className="w-3.5 h-3.5 text-blue-400" />
-                    <span>{isEditingDraft ? 'Cancel Edit' : 'Edit Copy'}</span>
-                  </button>
-                )}
-
-                <button
-                  onClick={handleScan}
-                  disabled={scanning}
-                  className="flex items-center space-x-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-700 transition-colors"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 text-blue-400 ${scanning ? 'animate-spin' : ''}`} />
-                  <span>{scanning ? 'Scanning...' : 'Re-scan'}</span>
-                </button>
-
-                {currentDraft.status !== 'Approved' && (
-                  <button
-                    onClick={handleSubmitForApproval}
-                    disabled={needsPolicyReview}
-                    className="flex items-center space-x-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow-md transition-all disabled:cursor-not-allowed disabled:opacity-50"
-                    title={needsPolicyReview ? latestRev.policy_coverage_reason : 'Submit for managerial approval'}
-                  >
-                    <Send className="w-3.5 h-3.5" />
-                    <span>Submit for Approval</span>
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Compliance Meter & Feedback Banner */}
-            <div className="bg-slate-950/80 border border-slate-800 rounded-lg p-3 flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <div className={`w-11 h-11 rounded-full flex items-center justify-center font-bold text-sm border-2 ${
-                  complianceScore >= 80 ? 'border-emerald-500 bg-emerald-500/10 text-emerald-400' :
-                  complianceScore >= 50 ? 'border-amber-500 bg-amber-500/10 text-amber-400' :
-                  'border-rose-500 bg-rose-500/10 text-rose-400'
-                }`}>
-                  {complianceScore}%
-                </div>
-                {needsPolicyReview && (
-                  <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-950/30 px-3 py-2 text-xs text-amber-200">
-                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
-                    <div>
-                      <div className="font-semibold">Policy coverage unavailable</div>
-                      <div className="mt-0.5 text-amber-200/80">
-                        {latestRev.policy_coverage_reason || 'A reviewer must confirm this content because no applicable company policy was retrieved.'}
-                      </div>
-                    </div>
-                  </div>
-                )}
+            <div className="bg-[#111830] border border-[#1F2A4A] rounded-2xl p-5 space-y-4 shadow-xl">
+              {/* Draft Header */}
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#1F2A4A] pb-3.5">
                 <div>
-                  <div className="text-xs font-semibold text-slate-200">
-                    {complianceScore >= 80 ? 'High Brand Alignment' : 'Off-Brand Violations Detected'}
-                  </div>
-                  <div className="text-[11px] text-slate-400">
-                    {pendingFlags.length === 0
-                      ? 'All brand checks passed. Ready for approval!'
-                      : `${pendingFlags.length} pending issue(s) require creator resolution`}
-                  </div>
+                  <h3 className="text-base font-bold text-[#E8ECF8] flex items-center gap-2">
+                    {currentDraft.title}
+                    <span className="text-xs font-normal text-[#7C88AB] font-mono">
+                      (v{currentDraft.current_version})
+                    </span>
+                  </h3>
+                  <p className="text-xs text-[#7C88AB] mt-0.5">
+                    Author: <span className="text-[#AAB4D0] font-medium">{currentDraft.author_name || 'Unknown creator'}</span>
+                  </p>
                 </div>
-              </div>
-              <div className="text-right text-[11px] text-slate-400">
-                <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 mr-1.5 animate-pulse"></span>
-                Two-Layer Active
-              </div>
-            </div>
 
-            {/* Draft Content Rendering */}
-            <div className="bg-slate-950 border border-slate-800 rounded-lg p-4 min-h-[260px]">
-              {currentDraft.content_type === 'text' ? (
-                isEditingDraft ? (
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between text-xs text-slate-400">
-                      <span className="font-semibold text-blue-400 flex items-center gap-1.5">
-                        <Edit3 className="w-3.5 h-3.5" />
-                        Direct Copy Editor
-                      </span>
-                      <span>Saving will trigger automatic re-scan as v{currentDraft.current_version + 1}</span>
-                    </div>
-                    <textarea
-                      value={editDraftText}
-                      onChange={e => setEditDraftText(e.target.value)}
-                      rows={8}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-xs text-slate-100 font-sans leading-relaxed focus:outline-none focus:border-blue-500"
-                      placeholder="Write or edit draft content here..."
-                    />
-                    <div className="flex justify-end space-x-2 pt-1">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsEditingDraft(false);
-                          setEditDraftText(latestRev?.content_text || '');
-                        }}
-                        className="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-white bg-slate-800 transition-colors"
-                      >
-                        Discard Changes
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleSaveDraftText}
-                        disabled={scanning}
-                        className="flex items-center space-x-1.5 bg-blue-600 hover:bg-blue-500 text-white px-4 py-1.5 rounded-lg text-xs font-semibold shadow-md transition-all"
-                      >
-                        <Sparkles className="w-3.5 h-3.5" />
-                        <span>{scanning ? 'Scanning...' : 'Save & Re-scan Revision'}</span>
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  renderHighlightedText()
-                )
-              ) : currentDraft.content_type === 'image' ? (
-                <div className="space-y-3">
-                  <div className="relative rounded-lg overflow-hidden border border-slate-800 bg-slate-900 flex items-center justify-center">
-                    <img
-                      src={mediaUrl(currentDraft.content_ref || '/static/uploads/sample_banner.png')}
-                      alt="Banner Draft"
-                      className="max-h-64 object-contain"
-                    />
-                  </div>
-                  <div className="bg-slate-900/80 border border-slate-800 p-2.5 rounded text-xs space-y-1 text-slate-300">
-                    <div className="font-semibold text-slate-200 flex items-center gap-1.5">
-                      <ImageIcon className="w-3.5 h-3.5 text-blue-400" />
-                      Multimodal Visual Audit
-                    </div>
-                    <p className="text-[11px] text-slate-400">
-                      Automated color palette extraction, WCAG contrast calculation, and logo hash inspection completed.
-                    </p>
-                  </div>
-                  {currentDraft.media_metadata && (
-                    <MediaMetadata metadata={currentDraft.media_metadata} />
+                {/* Action Buttons */}
+                <div className="flex items-center space-x-2">
+                  {currentDraft.content_type === 'text' && (
+                    <button
+                      onClick={() => {
+                        if (!isEditingDraft && latestRev?.content_text) {
+                          setEditDraftText(latestRev.content_text);
+                        }
+                        setIsEditingDraft(!isEditingDraft);
+                      }}
+                      className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                        isEditingDraft
+                          ? 'bg-[#4F6BED] text-white border-[#4F6BED]'
+                          : 'bg-[#0E1428] hover:bg-[#172040] text-[#AAB4D0] hover:text-[#E8ECF8] border-[#1F2A4A]'
+                      }`}
+                    >
+                      <Edit3 className="w-3.5 h-3.5 text-[#4F6BED]" />
+                      <span>{isEditingDraft ? 'Cancel Edit' : 'Edit Copy'}</span>
+                    </button>
                   )}
-                  {latestRev?.media_analysis && (
-                    <MediaAnalysis analysis={latestRev.media_analysis} />
+
+                  <button
+                    onClick={handleScan}
+                    disabled={scanning}
+                    className="flex items-center space-x-1.5 bg-[#0E1428] hover:bg-[#172040] text-[#AAB4D0] hover:text-[#E8ECF8] px-3 py-1.5 rounded-lg text-xs font-medium border border-[#1F2A4A] transition-colors"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 text-[#4F6BED] ${scanning ? 'animate-spin' : ''}`} />
+                    <span>{scanning ? 'Scanning...' : 'Re-scan'}</span>
+                  </button>
+
+                  {currentDraft.status !== 'Approved' && (
+                    <button
+                      onClick={handleSubmitForApproval}
+                      disabled={needsPolicyReview}
+                      className="flex items-center space-x-1.5 bg-[#4F6BED] hover:bg-[#6479F2] text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow-md shadow-[#4F6BED]/20 transition-all disabled:cursor-not-allowed disabled:opacity-50"
+                      title={needsPolicyReview ? latestRev.policy_coverage_reason : 'Submit for managerial approval'}
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                      <span>Submit for Approval</span>
+                    </button>
                   )}
                 </div>
-              ) : (
-                <div className="space-y-3">
-                  <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
-                    {currentDraft.content_type === 'audio' ? (
-                      <audio ref={mediaElementRef} controls src={mediaUrl(currentDraft.content_ref)} className="w-full" />
-                    ) : (
-                      <video ref={mediaElementRef} controls src={mediaUrl(currentDraft.content_ref)} className="max-h-64 w-full rounded" />
-                    )}
+              </div>
+
+              {/* Compliance Meter & Feedback Banner */}
+              <div className="bg-[#0E1428] border border-[#1F2A4A] rounded-xl p-3.5 flex items-center justify-between">
+                <div className="flex items-center space-x-3.5">
+                  <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-sm border-2 shrink-0 ${
+                    complianceScore >= 80 ? 'border-[#34D399] bg-[#34D399]/10 text-[#34D399]' :
+                    complianceScore >= 50 ? 'border-[#FBBF24] bg-[#FBBF24]/10 text-[#FBBF24]' :
+                    'border-[#F87171] bg-[#F87171]/10 text-[#F87171]'
+                  }`}>
+                    {complianceScore}%
                   </div>
-                  <div className="rounded border border-amber-500/30 bg-amber-950/20 p-2.5 text-xs text-amber-200">
-                    Automatic extraction is reported below. Any unavailable capability keeps this draft in human review.
+                  <div>
+                    <div className="text-xs font-bold text-[#E8ECF8]">
+                      {complianceScore >= 80 ? 'High Brand Alignment' : 'Off-Brand Violations Detected'}
+                    </div>
+                    <div className="text-[11px] text-[#AAB4D0] mt-0.5">
+                      {pendingFlags.length === 0
+                        ? 'All brand checks passed. Ready for approval!'
+                        : `${pendingFlags.length} pending issue(s) require creator resolution`}
+                    </div>
                   </div>
-                  {currentDraft.media_metadata && (
-                    <MediaMetadata metadata={currentDraft.media_metadata} />
-                  )}
-                  {latestRev?.media_analysis && (
-                    <MediaAnalysis
-                      analysis={latestRev.media_analysis}
-                      flags={flags}
-                      onSeek={(time) => {
-                        if (mediaElementRef.current && Number.isFinite(time)) {
-                          mediaElementRef.current.currentTime = time;
-                          mediaElementRef.current.play().catch(() => {});
-                        }
-                      }}
-                    />
-                  )}
+                </div>
+                <div className="text-right text-[11px] text-[#7C88AB] font-mono shrink-0">
+                  <span className="inline-block w-2 h-2 rounded-full bg-[#34D399] mr-1.5 animate-pulse"></span>
+                  Two-Layer Active
+                </div>
+              </div>
+
+              {needsPolicyReview && (
+                <div className="flex items-start gap-2.5 rounded-xl border border-[#FBBF24]/40 bg-[#FBBF24]/10 p-3 text-xs text-[#FBBF24]">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[#FBBF24]" />
+                  <div>
+                    <div className="font-semibold">Policy coverage unavailable</div>
+                    <div className="mt-0.5 text-[#FBBF24]/80">
+                      {latestRev.policy_coverage_reason || 'A reviewer must confirm this content because no applicable company policy was retrieved.'}
+                    </div>
+                  </div>
                 </div>
               )}
-            </div>
-          </div>
 
-          {/* Revision Lifecycle History Viewer */}
-          {currentDraft.history && currentDraft.history.length > 0 && (
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-                  <History className="w-3.5 h-3.5 text-blue-400" />
-                  Revision Lifecycle History ({currentDraft.history.length})
-                </h4>
-                <span className="text-[10px] text-slate-500 font-mono">Full Iteration Audit</span>
-              </div>
-
-              <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                {currentDraft.history.map(rev => (
-                  <div key={rev.id} className="bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-2">
-                        <span className="font-mono font-bold text-blue-400 bg-blue-500/10 border border-blue-500/20 px-1.5 py-0.5 rounded text-[11px]">
-                          v{rev.version_num}
+              {/* Draft Content Rendering */}
+              <div className="bg-[#0A0F1E] border border-[#1F2A4A] rounded-xl p-4 min-h-[260px]">
+                {currentDraft.content_type === 'text' ? (
+                  isEditingDraft ? (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between text-xs text-[#7C88AB]">
+                        <span className="font-semibold text-[#4F6BED] flex items-center gap-1.5">
+                          <Edit3 className="w-3.5 h-3.5" />
+                          Direct Copy Editor
                         </span>
-                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded border ${
-                          rev.compliance_score >= 80 
-                            ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30' 
-                            : 'bg-rose-500/10 text-rose-300 border-rose-500/30'
-                        }`}>
-                          {rev.compliance_score}% alignment
-                        </span>
+                        <span>Saving triggers automatic re-scan as v{currentDraft.current_version + 1}</span>
                       </div>
-                      <span className="text-[10px] text-slate-500 font-mono">
-                        {new Date(rev.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                      </span>
-                    </div>
-
-                    <p className="text-slate-300 text-[11px] line-clamp-2 bg-slate-900/60 p-1.5 rounded border border-slate-850">
-                      {rev.content_text || rev.image_path || 'No content snapshot'}
-                    </p>
-
-                    <div className="flex items-center justify-between text-[10px] text-slate-500 pt-0.5">
-                      <span>{rev.flags ? rev.flags.length : 0} flag(s) audited</span>
-                      <div className="space-x-1 flex flex-wrap">
-                        {(rev.flags || []).slice(0, 5).map(f => (
-                          <span key={f.id} className="bg-slate-800 text-slate-300 px-1.5 py-0.2 rounded font-mono text-[9px]">
-                            {f.rule_id}
-                          </span>
-                        ))}
+                      <textarea
+                        value={editDraftText}
+                        onChange={e => setEditDraftText(e.target.value)}
+                        rows={8}
+                        className="w-full bg-[#0E1428] border border-[#1F2A4A] rounded-xl p-3 text-xs text-[#E8ECF8] font-sans leading-relaxed focus:outline-none focus:border-[#4F6BED]"
+                        placeholder="Write or edit draft content here..."
+                      />
+                      <div className="flex justify-end space-x-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsEditingDraft(false);
+                            setEditDraftText(latestRev?.content_text || '');
+                          }}
+                          className="px-3 py-1.5 rounded-lg text-xs font-medium text-[#7C88AB] hover:text-[#E8ECF8] bg-[#111830] transition-colors"
+                        >
+                          Discard Changes
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleSaveDraftText}
+                          disabled={scanning}
+                          className="flex items-center space-x-1.5 bg-[#4F6BED] hover:bg-[#6479F2] text-white px-4 py-1.5 rounded-lg text-xs font-semibold shadow-md transition-all"
+                        >
+                          <Sparkles className="w-3.5 h-3.5" />
+                          <span>{scanning ? 'Scanning...' : 'Save & Re-scan Revision'}</span>
+                        </button>
                       </div>
                     </div>
+                  ) : (
+                    renderHighlightedText()
+                  )
+                ) : currentDraft.content_type === 'image' ? (
+                  (() => {
+                    const isSampleAsset = Boolean(
+                      !currentDraft?.content_ref ||
+                      currentDraft.content_ref.includes('sample_banner') ||
+                      currentDraft.content_ref.includes('placeholder') ||
+                      currentDraft.id === 'draft_banner_creative'
+                    );
+                    return (
+                      <div className="space-y-3">
+                        <div className="relative rounded-xl overflow-hidden border border-border bg-surface-subtle p-3 sm:p-4 min-h-[200px] flex flex-col items-center justify-center">
+                          {imageLoadError ? (
+                            <div className="flex flex-col items-center justify-center py-6 px-4 text-center space-y-2">
+                              <ImageOff className="w-8 h-8 text-text-muted" />
+                              <div className="text-xs font-semibold text-text-primary">Visual Asset Preview Unavailable</div>
+                              <p className="text-[11px] text-text-secondary max-w-xs">
+                                Unable to load creative asset file. The multimodal compliance report remains active below.
+                              </p>
+                            </div>
+                          ) : (
+                            <div className="w-full flex flex-col items-center">
+                              {/* Asset Status Badge & Meta Header */}
+                              <div className="w-full flex items-center justify-between mb-2.5">
+                                {isSampleAsset ? (
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/15 border border-amber-500/30 text-amber-600 dark:text-amber-400">
+                                    <TestTube2 className="w-3 h-3" />
+                                    Automated Evaluation Benchmark Sample
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-primary/15 border border-primary/30 text-primary">
+                                    <ImageIcon className="w-3 h-3" />
+                                    Production Creative Asset
+                                  </span>
+                                )}
+                                <span className="text-[10px] font-mono text-text-muted">
+                                  {isSampleAsset ? 'Synthetic Test Canvas' : 'Original Ratio (object-contain)'}
+                                </span>
+                              </div>
+
+                              {/* Asset Preview Container */}
+                              <div className="w-full flex items-center justify-center bg-canvas/40 rounded-lg p-2.5 border border-border/40">
+                                <img
+                                  src={mediaUrl(currentDraft.content_ref || '/static/uploads/sample_banner.png')}
+                                  alt={currentDraft.title || 'Draft Banner'}
+                                  onError={() => setFailedImageDraftId(currentDraft?.id || 'default')}
+                                  className="max-h-56 sm:max-h-64 w-auto object-contain rounded-md shadow-sm"
+                                />
+                              </div>
+
+                              {/* Explanatory Caption for Synthetic Evaluation Sample */}
+                              {isSampleAsset ? (
+                                <div className="w-full mt-2.5 p-2.5 rounded-lg bg-surface border border-border/80 text-[11px] text-text-secondary leading-relaxed">
+                                  <span className="font-semibold text-text-primary">Evaluation Sample Note: </span>
+                                  This synthetic test canvas was generated for automated brand governance testing (bounding-box layout boundary, WCAG contrast verification, and an intentional <code className="font-mono text-[10px] text-error font-semibold bg-error/10 px-1 py-0.5 rounded">#FF0055</code> accent color violation). It is an automated test fixture, not finished brand creative.
+                                </div>
+                              ) : (
+                                <div className="w-full mt-2 text-[11px] text-text-muted flex items-center justify-between">
+                                  <span>Asset reference: <code className="font-mono text-[10px] text-text-secondary">{currentDraft.content_ref?.split('/').pop()}</code></span>
+                                  <span>Multimodal scan completed</span>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Multimodal Visual Audit Details */}
+                        <div className="bg-surface-subtle border border-border p-3 rounded-xl text-xs space-y-1 text-text-secondary">
+                          <div className="font-semibold text-text-primary flex items-center gap-1.5">
+                            <ImageIcon className="w-3.5 h-3.5 text-primary" />
+                            Multimodal Visual Audit
+                          </div>
+                          <p className="text-[11px] text-text-muted">
+                            Automated color palette extraction, WCAG contrast calculation, and logo hash inspection completed.
+                          </p>
+                        </div>
+                        {currentDraft.media_metadata && (
+                          <MediaMetadata metadata={currentDraft.media_metadata} />
+                        )}
+                        {latestRev?.media_analysis && (
+                          <MediaAnalysis analysis={latestRev.media_analysis} />
+                        )}
+                      </div>
+                    );
+                  })()
+                ) : (
+                  <div className="space-y-3">
+                    <div className="rounded-xl border border-[#1F2A4A] bg-[#0E1428] p-4">
+                      {currentDraft.content_type === 'audio' ? (
+                        <audio ref={mediaElementRef} controls src={mediaUrl(currentDraft.content_ref)} className="w-full" />
+                      ) : (
+                        <video ref={mediaElementRef} controls src={mediaUrl(currentDraft.content_ref)} className="max-h-64 w-full rounded-lg" />
+                      )}
+                    </div>
+                    <div className="rounded-xl border border-[#FBBF24]/30 bg-[#FBBF24]/10 p-2.5 text-xs text-[#FBBF24]">
+                      Automatic extraction is reported below. Any unavailable capability keeps this draft in human review.
+                    </div>
+                    {currentDraft.media_metadata && (
+                      <MediaMetadata metadata={currentDraft.media_metadata} />
+                    )}
+                    {latestRev?.media_analysis && (
+                      <MediaAnalysis
+                        analysis={latestRev.media_analysis}
+                        flags={flags}
+                        onSeek={(time) => {
+                          if (mediaElementRef.current && Number.isFinite(time)) {
+                            mediaElementRef.current.currentTime = time;
+                            mediaElementRef.current.play().catch(() => {});
+                          }
+                        }}
+                      />
+                    )}
                   </div>
-                ))}
+                )}
               </div>
             </div>
-          )}
+
+            {/* Revision Lifecycle History Viewer */}
+            {currentDraft.history && currentDraft.history.length > 0 && (
+              <div className="bg-[#111830] border border-[#1F2A4A] rounded-2xl p-4 space-y-3 shadow-xl">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-bold text-[#E8ECF8] uppercase tracking-wider flex items-center gap-1.5">
+                    <History className="w-3.5 h-3.5 text-[#4F6BED]" />
+                    Revision Lifecycle History ({currentDraft.history.length})
+                  </h4>
+                  <span className="text-[10px] text-[#7C88AB] font-mono">Full Iteration Audit</span>
+                </div>
+
+                <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                  {currentDraft.history.map(rev => (
+                    <div key={rev.id} className="bg-[#0A0F1E] border border-[#1F2A4A] rounded-xl p-2.5 text-xs space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-2">
+                          <span className="font-mono font-bold text-[#4F6BED] bg-[#4F6BED]/10 border border-[#4F6BED]/20 px-1.5 py-0.5 rounded text-[11px]">
+                            v{rev.version_num}
+                          </span>
+                          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded border ${
+                            rev.compliance_score >= 80 
+                              ? 'bg-[#34D399]/10 text-[#34D399] border-[#34D399]/30' 
+                              : 'bg-[#F87171]/10 text-[#F87171] border-[#F87171]/30'
+                          }`}>
+                            {rev.compliance_score}% alignment
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-[#7C88AB] font-mono">
+                          {new Date(rev.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                        </span>
+                      </div>
+
+                      <p className="text-[#AAB4D0] text-[11px] line-clamp-2 bg-[#0E1428] p-1.5 rounded-lg border border-[#1F2A4A]">
+                        {rev.content_text || rev.image_path || 'No content snapshot'}
+                      </p>
+
+                      <div className="flex items-center justify-between text-[10px] text-[#7C88AB] pt-0.5 font-mono">
+                        <span>{rev.flags ? rev.flags.length : 0} flag(s) audited</span>
+                        <div className="space-x-1 flex flex-wrap">
+                          {(rev.flags || []).slice(0, 5).map(f => (
+                            <span key={f.id} className="bg-[#172040] text-[#AAB4D0] px-1.5 py-0.2 rounded text-[9px] border border-[#1F2A4A]">
+                              {f.rule_id}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </>
         ) : (
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-8 text-center text-slate-500">
+          <div className="bg-[#111830] border border-[#1F2A4A] rounded-2xl p-8 text-center text-[#7C88AB]">
             Select a draft from the left panel to begin brand governance review.
           </div>
         )}
@@ -695,99 +842,181 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
 
       {/* Right Column: AI Brand Governance Flags & Human-in-the-Loop Actions */}
       <div className="lg:col-span-4 space-y-4">
-        <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-blue-400" />
-            AI Review & Flags
-            <span className="bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded-full text-xs">
+        {/* Panel Header */}
+        <div className="flex items-center justify-between border-b border-[#1F2A4A] pb-2.5">
+          <div className="flex items-center gap-2">
+            <h2 className="text-xs font-bold uppercase tracking-wider text-[#AAB4D0] flex items-center gap-1.5">
+              <Sparkles className="w-4 h-4 text-[#4F6BED]" />
+              AI Review & Flags
+            </h2>
+            <span className="bg-[#4F6BED]/20 text-[#60A5FA] px-2 py-0.5 rounded-full text-xs font-mono font-semibold">
               {pendingFlags.length}
             </span>
-          </h2>
-          <span className="text-[11px] text-slate-500">Strict Grounding Enforced</span>
+          </div>
+          <span className="text-[10px] text-[#2DD4BF] font-mono">Strict Grounding</span>
         </div>
 
-        {/* Pending Flag Cards */}
+        {/* Dynamic Category Filter Pills (rendered only when multiple distinct categories exist) */}
+        {existingCategories.length > 1 && (
+          <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 no-scrollbar text-xs">
+            <button
+              type="button"
+              onClick={() => setCategoryFilter('all')}
+              className={`px-2.5 py-1 rounded-lg border text-[11px] font-semibold whitespace-nowrap transition-all ${
+                categoryFilter === 'all'
+                  ? 'bg-[#172040] border-[#4F6BED] text-[#E8ECF8] shadow-sm'
+                  : 'bg-[#0E1428] border-[#1F2A4A] text-[#7C88AB] hover:text-[#E8ECF8]'
+              }`}
+            >
+              All ({pendingFlags.length})
+            </button>
+            {existingCategories.map(cat => {
+              const count = pendingFlags.filter(f => f.category === cat).length;
+              return (
+                <button
+                  key={cat}
+                  type="button"
+                  onClick={() => setCategoryFilter(cat)}
+                  className={`px-2.5 py-1 rounded-lg border text-[11px] font-semibold capitalize whitespace-nowrap transition-all ${
+                    categoryFilter === cat
+                      ? 'bg-[#172040] border-[#4F6BED] text-[#E8ECF8] shadow-sm'
+                      : 'bg-[#0E1428] border-[#1F2A4A] text-[#7C88AB] hover:text-[#E8ECF8]'
+                  }`}
+                >
+                  {cat} ({count})
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Pending Flag Cards List */}
         <div className="space-y-3 max-h-[750px] overflow-y-auto pr-1">
           {pendingFlags.length === 0 ? (
-            <div className="bg-emerald-950/20 border border-emerald-500/30 rounded-xl p-6 text-center space-y-2">
-              <CheckCircle2 className="w-8 h-8 text-emerald-400 mx-auto" />
-              <h4 className="text-sm font-semibold text-emerald-300">100% Brand Compliant</h4>
-              <p className="text-xs text-slate-400">
-                No tone breaches, terminology violations, outdated facts, or palette errors detected.
+            <div className="bg-[#34D399]/10 border border-[#34D399]/30 rounded-2xl p-6 text-center space-y-2.5">
+              <div className="w-12 h-12 rounded-full bg-[#34D399]/20 border border-[#34D399]/40 flex items-center justify-center text-[#34D399] mx-auto shadow-md shadow-[#34D399]/10">
+                <CheckCircle2 className="w-6 h-6" />
+              </div>
+              <h4 className="text-sm font-bold text-[#34D399]">100% Brand Compliant</h4>
+              <p className="text-xs text-[#AAB4D0] leading-relaxed max-w-xs mx-auto">
+                All automated brand checks passed. No tone breaches, terminology violations, outdated facts, or palette errors detected.
               </p>
             </div>
+          ) : displayedPendingFlags.length === 0 ? (
+            <div className="bg-[#111830] border border-[#1F2A4A] rounded-2xl p-6 text-center text-xs text-[#7C88AB]">
+              No pending findings matching category "{categoryFilter}".
+            </div>
           ) : (
-            pendingFlags.map(flag => {
-              const categoryBadgeColors = {
-                tone: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30',
-                terminology: 'bg-amber-500/10 text-amber-300 border-amber-500/30',
-                facts: 'bg-rose-500/10 text-rose-300 border-rose-500/30',
-                claims: 'bg-purple-500/10 text-purple-300 border-purple-500/30',
-                color: 'bg-blue-500/10 text-blue-300 border-blue-500/30',
-                accessibility: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30'
-              };
+            displayedPendingFlags.map(flag => {
+              const isCardActive = activeFlagId === flag.id;
 
               return (
                 <div
+                  id={`flag-${flag.id}`}
                   key={flag.id}
-                  className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3 hover:border-slate-700 transition-colors shadow-sm"
+                  onMouseEnter={() => setActiveFlagId(flag.id)}
+                  onMouseLeave={() => setActiveFlagId(null)}
+                  className={`bg-[#111830] rounded-2xl p-4 space-y-3 transition-all shadow-sm border ${
+                    categoryBorderAccents[flag.category] || 'border-l-4 border-l-[#4F6BED]'
+                  } ${
+                    isCardActive
+                      ? 'border-[#4F6BED] ring-1 ring-[#4F6BED]/40 shadow-lg shadow-[#4F6BED]/10 bg-[#141C33]'
+                      : 'border-[#1F2A4A] hover:border-[#2D3A63]'
+                  }`}
                 >
-                  {/* Top Rule Header */}
-                  <div className="flex items-center justify-between text-xs">
-                    <div className="flex items-center space-x-1.5">
-                      <span className="font-mono font-bold text-blue-400 bg-blue-500/10 border border-blue-500/20 px-2 py-0.5 rounded">
+                  {/* Top Rule & Metadata Header */}
+                  <div className="flex items-center justify-between gap-1.5 text-xs">
+                    <div className="flex items-center space-x-1.5 min-w-0">
+                      <span className="font-mono font-bold text-[#60A5FA] bg-[#4F6BED]/10 border border-[#4F6BED]/20 px-2 py-0.5 rounded-lg text-xs shrink-0">
                         {flag.rule_id}
                       </span>
-                      <span className={`px-2 py-0.5 rounded border text-[10px] uppercase font-semibold ${categoryBadgeColors[flag.category] || 'bg-slate-800 text-slate-300'}`}>
+                      <span className={`px-2 py-0.5 rounded-full border text-[10px] uppercase font-semibold shrink-0 ${categoryBadgeColors[flag.category] || 'bg-[#172040] text-[#AAB4D0] border-[#1F2A4A]'}`}>
                         {flag.category}
                       </span>
+                      {flag.layer && (
+                        <span className="hidden sm:inline-block text-[9px] font-mono text-[#2DD4BF] bg-[#2DD4BF]/10 px-1.5 py-0.5 rounded border border-[#2DD4BF]/20 shrink-0">
+                          {flag.layer === 'layer1_deterministic' ? 'L1 Deterministic' : 'L2 Semantic'}
+                        </span>
+                      )}
+                      {flag.severity && (
+                        <span className={`px-1.5 py-0.5 rounded text-[9px] uppercase font-semibold border shrink-0 ${
+                          flag.severity === 'high' || flag.severity === 'critical' ? 'bg-[#F87171]/15 text-[#F87171] border-[#F87171]/30' :
+                          flag.severity === 'medium' ? 'bg-[#FBBF24]/15 text-[#FBBF24] border-[#FBBF24]/30' :
+                          'bg-[#60A5FA]/15 text-[#60A5FA] border-[#60A5FA]/30'
+                        }`}>
+                          {flag.severity}
+                        </span>
+                      )}
                     </div>
-                    <span className="text-[11px] text-slate-400 font-mono">
-                      {Math.round(flag.confidence * 100)}% conf
+                    {typeof flag.confidence === 'number' && (
+                      <span className="text-[11px] text-[#7C88AB] font-mono shrink-0 ml-auto" title={`${(flag.confidence * 100).toFixed(1)}% AI confidence`}>
+                        {Math.round(flag.confidence * 100)}% conf
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Offending Text Span Box */}
+                  <div className="bg-[#0E1428] rounded-xl p-2.5 text-xs border border-[#1F2A4A] space-y-1">
+                    <span className="text-[10px] uppercase font-bold tracking-wider text-[#7C88AB] block">
+                      Offending Text:
+                    </span>
+                    <span className="text-[#F87171] font-semibold line-through break-words block">
+                      "{flag.span}"
                     </span>
                   </div>
 
-                  {/* Offending Span */}
-                  <div className="bg-slate-950 rounded p-2 text-xs border border-slate-800/80">
-                    <span className="text-slate-500 font-medium block text-[10px] uppercase">Offending Span:</span>
-                    <span className="text-rose-300 font-semibold line-through">"{flag.span}"</span>
+                  {/* Friendly Rule Explanation */}
+                  <div className="text-xs text-[#E8ECF8] leading-relaxed">
+                    <span className="text-[#AAB4D0] text-[11px] font-medium block mb-0.5">
+                      Why it violates brand rules:
+                    </span>
+                    <p className="break-words text-[#D0D7EC]">
+                      {flag.explanation}
+                    </p>
                   </div>
 
-                  {/* Friendly Explanation */}
-                  <div className="text-xs text-slate-300 leading-snug">
-                    <p className="text-slate-400 text-[11px] mb-0.5 font-medium">Why it violates brand rules:</p>
-                    {flag.explanation}
-                  </div>
-
-                  {/* Suggested Fix */}
-                  <div className="bg-blue-950/30 border border-blue-500/30 rounded p-2.5 text-xs space-y-1">
-                    <div className="text-blue-300 font-medium flex items-center justify-between">
-                      <span className="text-[10px] uppercase tracking-wider">Suggested Non-Destructive Fix</span>
-                      <span className="text-[10px] text-blue-400">One-Click</span>
+                  {/* Suggested Non-Destructive Fix */}
+                  <div className="bg-[#4F6BED]/10 border border-[#4F6BED]/30 rounded-xl p-3 text-xs space-y-1.5">
+                    <div className="flex items-center justify-between text-[#60A5FA]">
+                      <span className="text-[10px] uppercase tracking-wider font-bold">
+                        Suggested Non-Destructive Fix
+                      </span>
+                      <span className="text-[10px] text-[#4F6BED] font-mono font-semibold">
+                        One-Click
+                      </span>
                     </div>
-                    <p className="text-white font-medium">"{flag.fix}"</p>
+                    <p className="text-[#E8ECF8] font-medium text-xs break-words">
+                      "{flag.fix}"
+                    </p>
                   </div>
 
-                  {/* Inline Edit Box if open */}
+                  {/* Inline Custom Fix Editor */}
                   {editingFlagId === flag.id && (
-                    <div className="space-y-2 bg-slate-950 p-2.5 rounded border border-blue-500/40">
+                    <div className="space-y-2 bg-[#0E1428] p-3 rounded-xl border border-[#4F6BED]/50 motion-safe:animate-fade-in">
+                      <label htmlFor={`custom-fix-${flag.id}`} className="block text-[11px] font-medium text-[#AAB4D0]">
+                        Customize Replacement Text:
+                      </label>
                       <input
+                        id={`custom-fix-${flag.id}`}
                         type="text"
                         value={customFixText}
                         onChange={e => setCustomFixText(e.target.value)}
-                        placeholder="Customize replacement..."
-                        className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-blue-500"
+                        placeholder="Enter custom replacement..."
+                        autoFocus
+                        className="w-full bg-[#111830] border border-[#1F2A4A] rounded-lg px-3 py-1.5 text-xs text-[#E8ECF8] placeholder-[#7C88AB] focus:outline-none focus:border-[#4F6BED] focus:ring-1 focus:ring-[#4F6BED]"
                       />
-                      <div className="flex justify-end space-x-1.5">
+                      <div className="flex justify-end space-x-2 pt-1">
                         <button
+                          type="button"
                           onClick={() => setEditingFlagId(null)}
-                          className="px-2 py-0.5 text-[10px] text-slate-400 hover:text-slate-200"
+                          className="px-2.5 py-1 text-xs text-[#7C88AB] hover:text-[#E8ECF8] rounded-lg hover:bg-[#111830] transition-colors"
                         >
                           Cancel
                         </button>
                         <button
+                          type="button"
                           onClick={() => handleResolve(flag.id, 'edited', customFixText)}
-                          className="px-2.5 py-0.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-[10px] font-medium"
+                          className="px-3 py-1 bg-[#4F6BED] hover:bg-[#6479F2] text-white rounded-lg text-xs font-semibold shadow-sm transition-all"
                         >
                           Apply Custom Fix
                         </button>
@@ -796,58 +1025,73 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
                   )}
 
                   {/* Creator Action Buttons (Accept, Edit, Dismiss) */}
-                  <div className="flex items-center space-x-2 pt-1 border-t border-slate-800/80">
+                  <div className="flex items-center space-x-2 pt-1.5 border-t border-[#1F2A4A]">
                     <button
+                      type="button"
                       onClick={() => handleResolve(flag.id, 'accepted')}
-                      className="flex-1 flex items-center justify-center space-x-1 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 py-1.5 rounded-lg text-xs font-medium transition-colors"
+                      className="flex-1 flex items-center justify-center space-x-1.5 bg-[#34D399]/15 hover:bg-[#34D399]/25 text-[#34D399] border border-[#34D399]/30 py-2 rounded-xl text-xs font-semibold transition-all shadow-sm"
+                      title="Accept the non-destructive fix and update draft"
                     >
                       <Check className="w-3.5 h-3.5" />
                       <span>Accept Fix</span>
                     </button>
                     <button
+                      type="button"
                       onClick={() => {
                         setEditingFlagId(flag.id);
-                        setCustomFixText(flag.fix);
+                        setCustomFixText(flag.fix || '');
                       }}
-                      className="flex items-center justify-center space-x-1 bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-700 transition-colors"
-                      title="Edit fix before applying"
+                      className="flex items-center justify-center space-x-1 bg-[#0E1428] hover:bg-[#172040] text-[#AAB4D0] hover:text-[#E8ECF8] px-3.5 py-2 rounded-xl text-xs font-medium border border-[#1F2A4A] transition-colors"
+                      title="Edit replacement text before applying"
                     >
                       <Edit3 className="w-3.5 h-3.5" />
                       <span>Edit</span>
                     </button>
                     <button
+                      type="button"
                       onClick={() => setActiveDismissModal(flag.id)}
-                      className="flex items-center justify-center space-x-1 bg-slate-800 hover:bg-rose-950/40 text-slate-400 hover:text-rose-300 px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-700 transition-colors"
-                      title="Dismiss with reason for manager"
+                      className="flex items-center justify-center space-x-1 bg-[#0E1428] hover:bg-[#F87171]/20 text-[#7C88AB] hover:text-[#F87171] px-3 py-2 rounded-xl text-xs font-medium border border-[#1F2A4A] transition-colors"
+                      title="Dismiss violation with reason for audit review"
                     >
                       <X className="w-3.5 h-3.5" />
                       <span>Dismiss</span>
                     </button>
                   </div>
 
-                  {/* Dismiss Modal / Input */}
+                  {/* Dismissal Reason Modal */}
                   {activeDismissModal === flag.id && (
-                    <div className="mt-2 bg-slate-950 border border-slate-700 rounded-lg p-3 space-y-2">
-                      <span className="text-[11px] font-semibold text-slate-300 block">
-                        Reason for Dismissal (will be audited by Manager):
-                      </span>
+                    <div className="mt-2.5 bg-[#0E1428] border border-[#1F2A4A] rounded-xl p-3.5 space-y-2.5 motion-safe:animate-fade-in">
+                      <div>
+                        <span className="text-xs font-semibold text-[#E8ECF8] block">
+                          Dismiss Violation
+                        </span>
+                        <span className="text-[11px] text-[#7C88AB] block mt-0.5">
+                          Explain why this brand violation is intentional. Your reasoning will be permanently logged for managerial review during approval.
+                        </span>
+                      </div>
                       <textarea
                         value={dismissReason}
                         onChange={e => setDismissReason(e.target.value)}
-                        placeholder="e.g., Intentional stylistic choice for holiday marketing campaign..."
+                        placeholder="e.g., Intentional creative hyperbole for seasonal campaign..."
                         rows={2}
-                        className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                        autoFocus
+                        className="w-full bg-[#111830] border border-[#1F2A4A] rounded-lg p-2.5 text-xs text-[#E8ECF8] placeholder-[#7C88AB] focus:outline-none focus:border-[#4F6BED] focus:ring-1 focus:ring-[#4F6BED]"
                       />
                       <div className="flex justify-end space-x-2">
                         <button
-                          onClick={() => setActiveDismissModal(null)}
-                          className="px-2.5 py-1 text-xs text-slate-400"
+                          type="button"
+                          onClick={() => {
+                            setActiveDismissModal(null);
+                            setDismissReason('');
+                          }}
+                          className="px-3 py-1.5 text-xs text-[#7C88AB] hover:text-[#E8ECF8] rounded-lg hover:bg-[#111830] transition-colors"
                         >
                           Cancel
                         </button>
                         <button
+                          type="button"
                           onClick={() => handleResolve(flag.id, 'dismissed', null, dismissReason || 'Intentional creative deviation')}
-                          className="px-3 py-1 bg-rose-600 hover:bg-rose-500 text-white rounded text-xs font-medium"
+                          className="px-3.5 py-1.5 bg-[#F87171] hover:bg-[#EF4444] text-white rounded-lg text-xs font-semibold shadow-sm transition-all"
                         >
                           Confirm Dismissal
                         </button>
@@ -860,22 +1104,39 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
           )}
         </div>
 
-        {/* Resolved Flags History */}
+        {/* Resolved Findings History Section */}
         {resolvedFlags.length > 0 && (
-          <div className="pt-3 border-t border-slate-800 space-y-2">
-            <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-              Resolved in this Revision ({resolvedFlags.length})
-            </h3>
-            <div className="space-y-1.5">
+          <div className="pt-3 border-t border-[#1F2A4A] space-y-2.5">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-bold text-[#7C88AB] uppercase tracking-wider flex items-center gap-1.5">
+                <CheckCircle2 className="w-3.5 h-3.5 text-[#34D399]" />
+                Resolved in this Revision ({resolvedFlags.length})
+              </h3>
+              <span className="text-[10px] text-[#7C88AB] font-mono">Audit Trail</span>
+            </div>
+            <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
               {resolvedFlags.map(rf => (
-                <div key={rf.id} className="flex items-center justify-between text-xs bg-slate-900/40 p-2 rounded border border-slate-800 text-slate-400">
-                  <span className="font-mono text-slate-300">{rf.rule_id}</span>
-                  <span className={`text-[10px] uppercase font-medium px-1.5 py-0.5 rounded ${
-                    rf.resolution === 'accepted' ? 'text-emerald-400 bg-emerald-500/10' :
-                    rf.resolution === 'edited' ? 'text-blue-400 bg-blue-500/10' : 'text-slate-400 bg-slate-800'
-                  }`}>
-                    {rf.resolution}
-                  </span>
+                <div key={rf.id} className="bg-[#0E1428] p-2.5 rounded-xl border border-[#1F2A4A] text-xs space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono font-semibold text-[#E8ECF8]">{rf.rule_id}</span>
+                    <span className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded-full border ${
+                      rf.resolution === 'accepted' ? 'text-[#34D399] bg-[#34D399]/15 border-[#34D399]/30' :
+                      rf.resolution === 'edited' ? 'text-[#60A5FA] bg-[#4F6BED]/15 border-[#4F6BED]/30' :
+                      'text-[#FBBF24] bg-[#FBBF24]/15 border-[#FBBF24]/30'
+                    }`}>
+                      {rf.resolution === 'accepted' ? 'Accepted' : rf.resolution === 'edited' ? 'Custom Fix' : 'Dismissed'}
+                    </span>
+                  </div>
+                  {rf.span && (
+                    <div className="text-[11px] text-[#7C88AB] truncate">
+                      Offending: <span className="text-[#AAB4D0] italic">"{rf.span}"</span>
+                    </div>
+                  )}
+                  {rf.resolution_comment && (
+                    <div className="text-[11px] text-[#FBBF24]/90 bg-[#FBBF24]/5 px-2 py-1 rounded border border-[#FBBF24]/20">
+                      Note: {rf.resolution_comment}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -889,13 +1150,13 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
 function MediaMetadata({ metadata }) {
   const entries = Object.entries(metadata).filter(([, value]) => value !== null && value !== undefined);
   return (
-    <div className="rounded border border-slate-800 bg-slate-900/70 p-2.5 text-[11px] text-slate-400">
-      <div className="mb-1 font-semibold text-slate-200">Technical media evidence</div>
+    <div className="rounded-xl border border-[#1F2A4A] bg-[#0E1428] p-3 text-[11px] text-[#AAB4D0]">
+      <div className="mb-1.5 font-bold text-[#E8ECF8]">Technical media evidence</div>
       <div className="grid grid-cols-2 gap-x-3 gap-y-1">
         {entries.map(([key, value]) => (
           <div key={key} className="truncate">
-            <span className="text-slate-500">{key.replaceAll('_', ' ')}:</span>{' '}
-            <span className="text-slate-300">
+            <span className="text-[#7C88AB]">{key.replaceAll('_', ' ')}:</span>{' '}
+            <span className="text-[#E8ECF8] font-mono">
               {typeof value === 'object' ? JSON.stringify(value) : String(value)}
             </span>
           </div>
@@ -913,30 +1174,30 @@ function MediaAnalysis({ analysis, flags = [], onSeek }) {
   );
   const frameFlags = flags.filter(flag => Number.isInteger(flag.frame_number));
   return (
-    <div className="rounded border border-slate-800 bg-slate-900/70 p-2.5 text-[11px] text-slate-400">
-      <div className="mb-1 font-semibold text-slate-200">Content extraction evidence</div>
-      <div className={missing.length ? 'text-amber-300' : 'text-emerald-300'}>
+    <div className="rounded-xl border border-[#1F2A4A] bg-[#0E1428] p-3 text-[11px] text-[#AAB4D0] space-y-2">
+      <div className="font-bold text-[#E8ECF8]">Content extraction evidence</div>
+      <div className={`font-medium ${missing.length ? 'text-[#FBBF24]' : 'text-[#34D399]'}`}>
         Status: {analysis.extraction_status || 'unknown'}
         {missing.length ? ` • Missing: ${missing.join(', ')}` : ''}
       </div>
       {analysis.transcript && (
-        <div className="mt-1 line-clamp-3">
-          <span className="text-slate-500">Transcript:</span> {analysis.transcript}
+        <div className="line-clamp-3">
+          <span className="text-[#7C88AB]">Transcript:</span> {analysis.transcript}
         </div>
       )}
       {analysis.ocr_text && (
-        <div className="mt-1 line-clamp-3">
-          <span className="text-slate-500">OCR:</span> {analysis.ocr_text}
+        <div className="line-clamp-3">
+          <span className="text-[#7C88AB]">OCR:</span> {analysis.ocr_text}
         </div>
       )}
       {findings.length > 0 && (
-        <div className="mt-1 text-slate-500">
+        <div className="text-[#7C88AB]">
           {findings.length} sampled frame(s) analyzed; findings include frame/timestamp evidence.
         </div>
       )}
       {timedFlags.length > 0 && (
-        <div className="mt-2 space-y-1">
-          <div className="font-semibold text-slate-300">Timeline findings</div>
+        <div className="space-y-1.5 pt-1">
+          <div className="font-semibold text-[#E8ECF8]">Timeline findings</div>
           {timedFlags.map(flag => {
             const time = Number.isFinite(flag.start_time) ? flag.start_time : flag.end_time;
             return (
@@ -944,11 +1205,11 @@ function MediaAnalysis({ analysis, flags = [], onSeek }) {
                 key={flag.id}
                 type="button"
                 onClick={() => onSeek?.(time)}
-                className="flex w-full items-center justify-between rounded border border-slate-700 bg-slate-950 px-2 py-1 text-left hover:border-blue-500 hover:text-blue-200"
+                className="flex w-full items-center justify-between rounded-lg border border-[#1F2A4A] bg-[#111830] hover:bg-[#172040] hover:border-[#4F6BED] px-2.5 py-1.5 text-left text-xs transition-colors"
                 title={`Jump to ${time.toFixed(3)} seconds`}
               >
-                <span className="truncate pr-2">{flag.span || flag.rule_id}</span>
-                <span className="shrink-0 font-mono text-blue-300">
+                <span className="truncate pr-2 text-[#AAB4D0]">{flag.span || flag.rule_id}</span>
+                <span className="shrink-0 font-mono text-[#60A5FA]">
                   {time.toFixed(2)}s
                 </span>
               </button>
@@ -957,12 +1218,12 @@ function MediaAnalysis({ analysis, flags = [], onSeek }) {
         </div>
       )}
       {frameFlags.length > 0 && (
-        <div className="mt-2 space-y-1">
-          <div className="font-semibold text-slate-300">Frame findings</div>
+        <div className="space-y-1.5 pt-1">
+          <div className="font-semibold text-[#E8ECF8]">Frame findings</div>
           {frameFlags.map(flag => (
-            <div key={flag.id} className="flex justify-between rounded border border-slate-700 bg-slate-950 px-2 py-1">
-              <span className="truncate pr-2">{flag.span || flag.rule_id}</span>
-              <span className="shrink-0 font-mono text-blue-300">Frame {flag.frame_number}</span>
+            <div key={flag.id} className="flex justify-between rounded-lg border border-[#1F2A4A] bg-[#111830] px-2.5 py-1.5 text-xs">
+              <span className="truncate pr-2 text-[#AAB4D0]">{flag.span || flag.rule_id}</span>
+              <span className="shrink-0 font-mono text-[#60A5FA]">Frame {flag.frame_number}</span>
             </div>
           ))}
         </div>

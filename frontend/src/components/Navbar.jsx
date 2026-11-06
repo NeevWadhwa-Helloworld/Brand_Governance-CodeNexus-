@@ -1,5 +1,8 @@
 import React from 'react';
-import { ShieldCheck, FileText, CheckCircle, Brain, BarChart3, TestTube2, Lock, Users } from 'lucide-react';
+import {
+  ShieldCheck, FileText, CheckCircle, Brain, BarChart3,
+  TestTube2, Lock, Users, Sparkles, LogOut, Sun, Moon
+} from 'lucide-react';
 
 const ROLE_TABS = {
   creator: ['studio', 'analytics'],
@@ -7,7 +10,15 @@ const ROLE_TABS = {
   admin: ['brain', 'studio', 'approvals', 'analytics', 'evaluation', 'audit', 'users']
 };
 
-export default function Navbar({ activeTab, setActiveTab, currentUser, pendingCount, onLogout }) {
+export default function Navbar({
+  activeTab,
+  setActiveTab,
+  currentUser,
+  pendingCount,
+  onLogout,
+  theme,
+  toggleTheme
+}) {
   const allTabs = [
     { id: 'studio', label: 'Draft Studio & Scanner', icon: FileText },
     { id: 'approvals', label: 'Approval Queue', icon: CheckCircle, badge: pendingCount },
@@ -18,71 +29,110 @@ export default function Navbar({ activeTab, setActiveTab, currentUser, pendingCo
     { id: 'users', label: 'Team Accounts', icon: Users },
   ];
 
-  const allowedTabs = currentUser ? (ROLE_TABS[currentUser.role] || ROLE_TABS.creator) : ROLE_TABS.creator;
+  const allowedTabs = currentUser
+    ? (ROLE_TABS[currentUser.role] || ROLE_TABS.creator)
+    : ROLE_TABS.creator;
+
   const visibleTabs = allTabs.filter(tab => allowedTabs.includes(tab.id));
 
+  const roleStyles = {
+    creator: {
+      pill: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30',
+      label: 'Creator'
+    },
+    reviewer: {
+      pill: 'bg-sky-500/15 text-sky-600 dark:text-sky-400 border-sky-500/30',
+      label: 'Reviewer'
+    },
+    admin: {
+      pill: 'bg-purple-500/15 text-purple-600 dark:text-purple-400 border-purple-500/30',
+      label: 'Admin'
+    }
+  };
+
+  const currentRoleConfig = currentUser?.role
+    ? (roleStyles[currentUser.role] || roleStyles.creator)
+    : roleStyles.creator;
+
   return (
-    <header className="border-b border-slate-800 bg-slate-900/90 backdrop-blur sticky top-0 z-50">
-      {/* Top Banner */}
-      <div className="max-w-7xl mx-auto px-4 py-2 flex flex-wrap items-center justify-between border-b border-slate-800/60 text-xs">
-        <div className="flex items-center space-x-3 text-slate-400">
-          <span className="flex items-center gap-1 text-blue-400 font-medium">
-            <ShieldCheck className="w-4 h-4 text-blue-500" />
-            Inkloom AI Governance Engine
+    <header className="border-b border-border bg-canvas/95 backdrop-blur-md sticky top-0 z-40 transition-colors">
+      {/* Top Banner / Identity & Persona Bar */}
+      <div className="w-full max-w-7xl xl:max-w-[1400px] mx-auto px-3 sm:px-6 py-2.5 flex items-center justify-between border-b border-border/60 text-xs">
+        {/* Brand & Engine Identity */}
+        <div className="flex items-center space-x-2.5 sm:space-x-3 text-text-secondary">
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-lg bg-primary/15 border border-primary/30 flex items-center justify-center text-primary shrink-0 shadow-sm shadow-primary/20">
+              <ShieldCheck className="w-4 h-4" />
+            </div>
+            <div>
+              <span className="font-bold text-xs tracking-tight text-text-primary">Inkloom AI</span>
+              <span className="text-[10px] text-text-muted font-mono ml-1.5 hidden sm:inline">Governance Engine</span>
+            </div>
+          </div>
+          <span className="text-border-strong hidden md:inline">|</span>
+          <span className="hidden md:inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-mono bg-surface border border-border text-primary font-medium">
+            <Sparkles className="w-2.5 h-2.5" /> Grounded RAG
           </span>
-          <span className="text-slate-600">|</span>
-          <span className="bg-blue-500/10 text-blue-400 border border-blue-500/20 px-2 py-0.5 rounded-full font-mono">
-            Team: DoraAIemon
-          </span>
-          <span className="hidden sm:inline text-slate-500">
-            Multimodal Two-Layer Grounded RAG
+          <span className="hidden lg:inline text-[11px] text-text-muted">
+            Team DoraAIemon
           </span>
         </div>
 
-        {/* Persona Switcher */}
-        <div className="flex items-center space-x-3">
-          <span className="text-slate-400 font-medium">Acting as:</span>
-          <div className="flex items-center space-x-1 bg-slate-800/90 p-1 rounded-lg border border-slate-700">
-            {[currentUser].filter(Boolean).map(u => {
-              const isSelected = currentUser?.id === u.id;
-              const roleColors = {
-                creator: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
-                reviewer: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30',
-                admin: 'bg-amber-500/20 text-amber-300 border-amber-500/30'
-              };
+        {/* Persona & Actions: Theme Toggle, User Indicator & Sign Out */}
+        <div className="flex items-center space-x-2 sm:space-x-2.5">
+          {/* Dark / Light Mode Toggle */}
+          <button
+            type="button"
+            onClick={toggleTheme}
+            className="flex items-center space-x-1.5 rounded-xl border border-border bg-surface-subtle hover:bg-surface-raised hover:border-border-strong px-2 sm:px-2.5 py-1 text-xs text-text-secondary hover:text-text-primary transition-colors cursor-pointer"
+            title={theme === 'light' ? 'Switch to Dark Mode (Obsidian)' : 'Switch to Light Mode (Emerald Light)'}
+            aria-label={theme === 'light' ? 'Switch to Dark Mode' : 'Switch to Light Mode'}
+          >
+            {theme === 'light' ? (
+              <>
+                <Moon className="w-3.5 h-3.5 text-primary" />
+                <span className="font-medium text-[11px] hidden sm:inline">Dark</span>
+              </>
+            ) : (
+              <>
+                <Sun className="w-3.5 h-3.5 text-warning" />
+                <span className="font-medium text-[11px] hidden sm:inline">Light</span>
+              </>
+            )}
+          </button>
 
-              return (
-                <button
-                  key={u.id}
-                  disabled
-                  className={`flex items-center space-x-1.5 px-2.5 py-1 rounded text-xs transition-all ${
-                    isSelected
-                      ? 'bg-blue-600 text-white font-medium shadow-sm'
-                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-700/50'
-                  }`}
-                  title={`${u.name} (${u.role.toUpperCase()})`}
-                >
-                  <img src={u.avatar} alt={u.name} className="w-4 h-4 rounded-full" />
-                  <span>{u.name.split(' ')[0]}</span>
-                  <span className={`text-[10px] uppercase px-1 py-0.2 rounded border ${roleColors[u.role]}`}>
-                    {u.role}
-                  </span>
-                </button>
-              );
-            })}
+          <span className="text-xs text-text-muted font-medium hidden md:inline">Acting as:</span>
+          <div className="flex items-center space-x-1.5 sm:space-x-2 bg-surface border border-border px-2 sm:px-2.5 py-1 rounded-xl">
+            <img
+              src={currentUser?.avatar || 'https://api.dicebear.com/7.x/avataaars/svg?seed=user'}
+              alt={currentUser?.name || 'User'}
+              className="w-4 h-4 rounded-full ring-1 ring-primary/40 shrink-0"
+            />
+            <span className="text-xs font-medium text-text-primary max-w-[85px] sm:max-w-none truncate">
+              {currentUser?.name || 'User'}
+            </span>
+            <span className={`text-[10px] uppercase font-semibold px-1.5 py-0.2 rounded-full border ${currentRoleConfig.pill}`}>
+              {currentRoleConfig.label}
+            </span>
           </div>
+
           <button
             onClick={onLogout}
-            className="rounded-lg border border-slate-700 px-2.5 py-1 text-xs text-slate-400 hover:bg-slate-800 hover:text-white"
+            className="flex items-center space-x-1.5 rounded-xl border border-border bg-surface-subtle hover:bg-surface-raised hover:border-border-strong px-2 sm:px-2.5 py-1 text-xs text-text-secondary hover:text-text-primary transition-colors cursor-pointer"
+            title="Sign out"
           >
-            Sign out
+            <LogOut className="w-3.5 h-3.5 text-text-muted" />
+            <span className="hidden sm:inline font-medium">Sign out</span>
           </button>
         </div>
       </div>
 
-      {/* Main Tabs Navigation */}
-      <div className="max-w-7xl mx-auto px-4 flex items-center justify-between">
-        <nav className="flex space-x-1 overflow-x-auto py-2">
+      {/* Main Tabs Navigation (Fits completely within desktop viewport without scrolling) */}
+      <div className="w-full max-w-7xl xl:max-w-[1400px] mx-auto px-2 sm:px-4 lg:px-6">
+        <nav
+          className="flex items-center justify-between lg:justify-start gap-1 lg:gap-1.5 overflow-x-auto lg:overflow-x-visible py-1.5 sm:py-2 no-scrollbar"
+          aria-label="Main Navigation"
+        >
           {visibleTabs.map(tab => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -90,16 +140,16 @@ export default function Navbar({ activeTab, setActiveTab, currentUser, pendingCo
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center space-x-2 px-3.5 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${
+                className={`flex items-center justify-center space-x-1 sm:space-x-1.5 px-2 py-1.5 sm:px-2.5 sm:py-1.5 xl:px-3 text-[11px] lg:text-[11.5px] xl:text-xs font-semibold rounded-xl transition-all whitespace-nowrap shrink-0 cursor-pointer ${
                   isActive
-                    ? 'bg-blue-600/15 text-blue-400 border border-blue-500/30'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                    ? 'bg-surface-raised text-text-primary border border-primary/60 shadow-sm shadow-primary/15'
+                    : 'text-text-secondary hover:text-text-primary hover:bg-surface border border-transparent'
                 }`}
               >
-                <Icon className={`w-4 h-4 ${isActive ? 'text-blue-400' : 'text-slate-500'}`} />
-                <span>{tab.label}</span>
+                <Icon className={`w-3.5 h-3.5 shrink-0 transition-colors ${isActive ? 'text-primary' : 'text-text-muted'}`} />
+                <span className="tracking-tight">{tab.label}</span>
                 {tab.badge > 0 && (
-                  <span className="bg-amber-500 text-slate-950 font-bold text-[10px] px-1.5 py-0.5 rounded-full">
+                  <span className="bg-primary text-primary-fg font-bold text-[9px] px-1.5 py-0.2 rounded-full shrink-0 shadow-sm ml-0.5">
                     {tab.badge}
                   </span>
                 )}
