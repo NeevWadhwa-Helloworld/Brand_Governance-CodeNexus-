@@ -186,12 +186,12 @@ export default function App() {
                   <ShieldCheck className="w-5 h-5" />
                 </div>
                 <div>
-                  <h1 className="text-xl font-bold tracking-tight text-[#E8ECF8]">Inkloom AI</h1>
-                  <span className="text-[10px] text-[#36D6A0] font-mono block">Grounded Brand Governance Platform</span>
+                  <h1 className="text-xl font-bold tracking-tight text-[#E8ECF8]">Inkloom</h1>
+                  <span className="text-[10px] text-[#36D6A0] font-mono block">Brand review workspace</span>
                 </div>
               </div>
               <p className="text-xs text-[#AAB4D0] leading-relaxed">
-                Enter your authorized credentials to access brand governance pipelines, scans, and approval workflows.
+                Sign in to review brand drafts, scan findings, and approval activity.
               </p>
             </div>
 
@@ -336,10 +336,10 @@ export default function App() {
           <footer className="border-t border-[#1F2A4A] bg-[#0A0F1E] py-3.5 text-center text-xs text-[#7C88AB] transition-colors">
             <div className="max-w-7xl mx-auto px-4 flex flex-wrap items-center justify-between gap-2">
               <div>
-                <span className="font-semibold text-[#AAB4D0]">Intelligent Brand-Governance Platform</span> • Team DoraAIemon (Chhavi Rani, Neev Wadhwa, Prateek Singh, Paridhi Agarwal)
+                <span className="font-semibold text-[#AAB4D0]">Inkloom</span> • Brand review workspace
               </div>
               <div className="font-mono text-[11px] text-[#7C88AB]">
-                Inkloom AI • Production Brand Governance
+                Drafts • Guidelines • Approvals
               </div>
             </div>
           </footer>

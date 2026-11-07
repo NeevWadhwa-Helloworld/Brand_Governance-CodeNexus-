@@ -40,14 +40,17 @@ class Scanner:
             content_type = draft["content_type"]
             media_ref = draft.get("content_ref")
             if content_text is None and image_path is None:
-                cursor.execute(
-                    "SELECT * FROM revisions WHERE draft_id = ? AND version_num = ?",
-                    (draft_id, curr_version),
-                )
-                revision = cursor.fetchone()
-                if revision:
-                    content_text = revision.get("content_text")
-                    image_path = revision.get("image_path")
+                if content_type == "text":
+                    content_text = media_ref
+                else:
+                    cursor.execute(
+                        "SELECT * FROM revisions WHERE draft_id = ? AND version_num = ?",
+                        (draft_id, curr_version),
+                    )
+                    revision = cursor.fetchone()
+                    if revision:
+                        content_text = revision.get("content_text")
+                        image_path = revision.get("image_path")
 
         media_analysis = {}
         if content_type in {"image", "audio", "video"}:
@@ -123,17 +126,6 @@ class Scanner:
                 seen_spans.add(key)
                 deduped_flags.append(flag)
 
-        if not deduped_flags:
-            compliance_score = 100.0
-        else:
-            deduction = sum(
-                15.0 if flag.get("layer") == "layer1_deterministic" else 12.0
-                for flag in deduped_flags
-            )
-            compliance_score = max(10.0, round(100.0 - deduction, 1))
-        if coverage_status == "needs_review":
-            compliance_score = min(compliance_score, 99.0)
-
         revision_id = str(uuid.uuid4())
         timestamp = datetime.utcnow().isoformat() + "Z"
         stored_flags = []
@@ -152,7 +144,7 @@ class Scanner:
                     curr_version,
                     content_text,
                     image_path,
-                    compliance_score,
+                    None,
                     coverage_status,
                     coverage_reason,
                     json.dumps(media_analysis) if media_analysis else None,
@@ -218,7 +210,6 @@ class Scanner:
                 "revision_id": revision_id,
                 "version_num": curr_version,
                 "flags_detected": len(stored_flags),
-                "compliance_score": compliance_score,
                 "policy_coverage_status": coverage_status,
                 "media_missing_capabilities": missing_capabilities,
                 "duration_ms": duration_ms,
@@ -229,7 +220,6 @@ class Scanner:
             "draft_id": draft_id,
             "revision_id": revision_id,
             "version_num": curr_version,
-            "compliance_score": compliance_score,
             "flags_count": len(stored_flags),
             "flags": stored_flags,
             "scan_duration_ms": duration_ms,

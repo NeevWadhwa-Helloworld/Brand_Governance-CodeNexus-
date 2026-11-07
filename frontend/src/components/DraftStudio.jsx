@@ -172,19 +172,45 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
   async function handleResolve(flagId, resolution, editedFix = null, comment = null) {
     try {
       const res = await api.resolveFlag(flagId, resolution, editedFix, comment, currentUser.id);
-      if (res && res.updated_text) {
-        setEditDraftText(res.updated_text);
+      const needsRescan = res?.rescan_required && currentDraft?.content_type === 'text';
+      if (needsRescan) {
+        setScanning(true);
+        try {
+          await api.updateDraft(currentDraft.id, { content_text: res.updated_text }, currentUser.id);
+        } catch (scanError) {
+          await loadDraftDetails(currentDraft.id);
+          await loadDrafts();
+          setActiveDismissModal(null);
+          setEditingFlagId(null);
+          setDismissReason('');
+          setCustomFixText('');
+          if (showToast) {
+            showToast(`Text was updated, but the re-scan failed: ${scanError.message}. Re-scan before submitting.`, 'error');
+          }
+          return;
+        } finally {
+          setScanning(false);
+        }
       }
       await loadDraftDetails(currentDraft.id);
+      await loadDrafts();
       setActiveDismissModal(null);
       setEditingFlagId(null);
       setDismissReason('');
       setCustomFixText('');
       if (onDraftUpdated) onDraftUpdated();
-      if (showToast) showToast(`Brand issue ${resolution}`, "info");
+      if (showToast) {
+        if (res?.asset_update_required) {
+          showToast('Finding confirmed. The uploaded asset is unchanged; edit the source file and upload a new revision to apply changes.', 'info');
+        } else if (needsRescan) {
+          showToast('Suggested text applied and the updated draft was re-scanned.', 'success');
+        } else {
+          showToast(`Finding ${resolution === 'dismissed' ? 'dismissed' : 'updated'}.`, 'info');
+        }
+      }
     } catch (e) {
       console.error(e);
-      if (showToast) showToast("Could not resolve flag", "error");
+      if (showToast) showToast(e.message || 'Could not resolve finding.', 'error');
     }
   }
 
@@ -280,7 +306,6 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
   const flags = latestRev?.flags || [];
   const pendingFlags = flags.filter(f => f.resolution === 'pending');
   const resolvedFlags = flags.filter(f => f.resolution !== 'pending');
-  const complianceScore = latestRev?.compliance_score ?? null;
   const needsPolicyReview = latestRev?.policy_coverage_status === 'needs_review';
   const latestThreadDecision = comments.slice().reverse().find(
     comment => ['changes_requested', 'resubmitted', 'approved'].includes(comment.decision)
@@ -811,45 +836,22 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
                 </div>
               )}
 
-              {/* Compliance Meter & Feedback Banner */}
-              <div className="bg-[#0E1428] border border-[#1F2A4A] rounded-xl p-3.5 flex items-center justify-between">
-                <div className="flex items-center space-x-3.5">
-                  <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-sm border-2 shrink-0 ${
-                    !latestRev ? 'border-[#7C88AB] bg-[#7C88AB]/10 text-[#AAB4D0]' :
-                    complianceScore >= 80 ? 'border-[#34D399] bg-[#34D399]/10 text-[#34D399]' :
-                    complianceScore >= 50 ? 'border-[#FBBF24] bg-[#FBBF24]/10 text-[#FBBF24]' :
-                    'border-[#F87171] bg-[#F87171]/10 text-[#F87171]'
-                  }`}>
-                    {!latestRev ? '—' : `${complianceScore}%`}
-                  </div>
-                  <div>
-                    <div className="text-xs font-bold text-[#E8ECF8]">
-                      {!latestRev
-                        ? 'Scan not run'
-                        : needsPolicyReview
-                        ? 'Human review required'
-                        : complianceScore >= 80 ? 'High Brand Alignment' : 'Off-Brand Violations Detected'}
-                    </div>
-                    <div className="text-[11px] text-[#AAB4D0] mt-0.5">
-                      {!latestRev
-                        ? 'Run a scan to calculate alignment and show policy-grounded recommendations.'
-                        : needsPolicyReview
-                        ? 'Automated checks could not fully verify this asset.'
-                        : pendingFlags.length === 0
-                        ? 'No issues were found by automated checks.'
-                        : `${pendingFlags.length} pending issue(s) require creator resolution`}
-                    </div>
-                  </div>
+              <div className="bg-[#0E1428] border border-[#1F2A4A] rounded-xl p-3.5">
+                <div className="text-xs font-bold text-[#E8ECF8]">
+                  {!latestRev ? 'Scan not run' : needsPolicyReview ? 'Human review required' : 'Automated scan result'}
+                </div>
+                <div className="text-[11px] text-[#AAB4D0] mt-1">
+                  {!latestRev
+                    ? 'Run a scan to check for issues and review available policy coverage.'
+                    : needsPolicyReview
+                    ? 'Automated checks could not fully review this asset.'
+                    : pendingFlags.length === 0
+                    ? 'No findings were returned by the available automated checks; this is not proof of compliance.'
+                    : `${pendingFlags.length} finding(s) need attention.`}
                 </div>
                 {latestRev && (
-                  <div className="shrink-0 text-right">
-                    <div className="text-right text-[11px] text-[#7C88AB] font-mono">
-                      <span className="inline-block w-2 h-2 rounded-full bg-[#34D399] mr-1.5 animate-pulse"></span>
-                      Automated Checks
-                    </div>
-                    {needsPolicyReview && (
-                      <div className="mt-1 text-[10px] text-[#FBBF24]">Provisional score</div>
-                    )}
+                  <div className="text-[10px] text-[#7C88AB] mt-2">
+                    {flags.length} finding(s) recorded · Policy coverage: {latestRev.policy_coverage_status || 'unknown'}
                   </div>
                 )}
               </div>
@@ -962,21 +964,21 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
                               ) : (
                                 <div className="w-full mt-2 text-[11px] text-text-muted flex items-center justify-between">
                                   <span>Asset reference: <code className="font-mono text-[10px] text-text-secondary">{currentDraft.content_ref?.split('/').pop()}</code></span>
-                                  <span>Multimodal scan completed</span>
+                                  <span>Uploaded file</span>
                                 </div>
                               )}
                             </div>
                           )}
                         </div>
 
-                        {/* Multimodal Visual Audit Details */}
+                        {/* Image review note */}
                         <div className="bg-surface-subtle border border-border p-3 rounded-xl text-xs space-y-1 text-text-secondary">
                           <div className="font-semibold text-text-primary flex items-center gap-1.5">
                             <ImageIcon className="w-3.5 h-3.5 text-primary" />
-                            Multimodal Visual Audit
+                            Image review
                           </div>
                           <p className="text-[11px] text-text-muted">
-                            Automated color palette extraction, WCAG contrast calculation, and logo hash inspection completed.
+                            Review the full image as well as scan findings. Automated checks may miss visual details.
                           </p>
                         </div>
                         {currentDraft.media_metadata && (
@@ -1040,9 +1042,9 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
                 <div className="flex items-center justify-between">
                   <h4 className="text-xs font-bold text-[#E8ECF8] uppercase tracking-wider flex items-center gap-1.5">
                     <History className="w-3.5 h-3.5 text-[#4F6BED]" />
-                    Revision Lifecycle History ({currentDraft.history.length})
+                    Revision history ({currentDraft.history.length})
                   </h4>
-                  <span className="text-[10px] text-[#7C88AB] font-mono">Full Iteration Audit</span>
+                  <span className="text-[10px] text-[#7C88AB] font-mono">Previous scans</span>
                 </div>
 
                 <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
@@ -1053,12 +1055,8 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
                           <span className="font-mono font-bold text-[#4F6BED] bg-[#4F6BED]/10 border border-[#4F6BED]/20 px-1.5 py-0.5 rounded text-[11px]">
                             v{rev.version_num}
                           </span>
-                          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded border ${
-                            rev.compliance_score >= 80 
-                              ? 'bg-[#34D399]/10 text-[#34D399] border-[#34D399]/30' 
-                              : 'bg-[#F87171]/10 text-[#F87171] border-[#F87171]/30'
-                          }`}>
-                            {rev.compliance_score}% alignment
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded border border-[#1F2A4A] bg-[#0E1428] text-[#AAB4D0]">
+                            {rev.flags?.length || 0} finding(s) · {rev.policy_coverage_status || 'coverage unknown'}
                           </span>
                         </div>
                         <span className="text-[10px] text-[#7C88AB] font-mono">
@@ -1071,7 +1069,7 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
                       </p>
 
                       <div className="flex items-center justify-between text-[10px] text-[#7C88AB] pt-0.5 font-mono">
-                        <span>{rev.flags ? rev.flags.length : 0} flag(s) audited</span>
+                        <span>{rev.flags ? rev.flags.length : 0} finding(s)</span>
                         <div className="space-x-1 flex flex-wrap">
                           {(rev.flags || []).slice(0, 5).map(f => (
                             <span key={f.id} className="bg-[#172040] text-[#AAB4D0] px-1.5 py-0.2 rounded text-[9px] border border-[#1F2A4A]">
@@ -1100,13 +1098,12 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
           <div className="flex items-center gap-2">
             <h2 className="text-xs font-bold uppercase tracking-wider text-[#AAB4D0] flex items-center gap-1.5">
               <Sparkles className="w-4 h-4 text-[#4F6BED]" />
-              AI Review & Flags
+              Scan findings
             </h2>
             <span className="bg-[#4F6BED]/20 text-[#60A5FA] px-2 py-0.5 rounded-full text-xs font-mono font-semibold">
               {pendingFlags.length}
             </span>
           </div>
-          <span className="text-[10px] text-[#2DD4BF] font-mono">Strict Grounding</span>
         </div>
 
         {/* Dynamic Category Filter Pills (rendered only when multiple distinct categories exist) */}
@@ -1149,7 +1146,7 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
             <div className="bg-[#111830] border border-[#1F2A4A] rounded-2xl p-6 text-center space-y-2.5">
               <h4 className="text-sm font-bold text-[#E8ECF8]">No scan results yet</h4>
               <p className="text-xs text-[#AAB4D0] leading-relaxed max-w-xs mx-auto">
-                Run a scan to check this draft against the active brand policies. No alignment score or recommendations are available until then.
+                Run a scan to check this draft against active workspace guidelines. No score or recommendations are available until then.
               </p>
             </div>
           ) : pendingFlags.length === 0 ? (
@@ -1159,15 +1156,15 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
               </div>
               <h4 className="text-sm font-bold text-[#34D399]">
                 {needsPolicyReview
-                  ? 'No issues found in available checks'
-                  : flags.length > 0 ? 'All flagged issues resolved' : 'No issues found'}
+                  ? 'No findings returned by available checks'
+                  : flags.length > 0 ? 'No pending findings' : 'No findings returned'}
               </h4>
               <p className="text-xs text-[#AAB4D0] leading-relaxed max-w-xs mx-auto">
                 {needsPolicyReview
-                  ? 'Automated checks found no violations in the available policy coverage. Human review is still required.'
+                  ? 'No findings were returned by the available automated checks. Human review is still required.'
                   : flags.length > 0
-                  ? 'There are no pending recommendations. The scan findings were resolved.'
-                  : 'No tone, terminology, claim, or visual-policy findings were returned by the automated checks.'}
+                  ? 'There are no pending findings in this revision.'
+                  : 'No findings were returned by the automated checks. Review the content before approval.'}
               </p>
             </div>
           ) : displayedPendingFlags.length === 0 ? (
@@ -1217,16 +1214,20 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
                       )}
                     </div>
                     {typeof flag.confidence === 'number' && (
-                      <span className="text-[11px] text-[#7C88AB] font-mono shrink-0 ml-auto" title={`${(flag.confidence * 100).toFixed(1)}% AI confidence`}>
-                        {Math.round(flag.confidence * 100)}% conf
+                      <span className="text-[11px] text-[#7C88AB] font-mono shrink-0 ml-auto" title="Finding confidence score; not a guarantee of correctness">
+                        {Math.round(flag.confidence * 100)}% confidence
                       </span>
                     )}
                   </div>
 
-                  {/* Offending Text Span Box */}
+                  {/* Finding Evidence */}
                   <div className="bg-[#0E1428] rounded-xl p-2.5 text-xs border border-[#1F2A4A] space-y-1">
                     <span className="text-[10px] uppercase font-bold tracking-wider text-[#7C88AB] block">
-                      Offending Text:
+                      {currentDraft.content_type === 'text'
+                        ? 'Flagged text'
+                        : currentDraft.content_type === 'image'
+                        ? 'Detected text or visual finding'
+                        : 'Transcript or extracted text'}
                     </span>
                     <span className="text-[#F87171] font-semibold line-through break-words block">
                       "{flag.span}"
@@ -1243,23 +1244,25 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
                     </p>
                   </div>
 
-                  {/* Suggested Non-Destructive Fix */}
+                  {/* Suggested Change */}
                   <div className="bg-[#4F6BED]/10 border border-[#4F6BED]/30 rounded-xl p-3 text-xs space-y-1.5">
                     <div className="flex items-center justify-between text-[#60A5FA]">
                       <span className="text-[10px] uppercase tracking-wider font-bold">
-                        Suggested Non-Destructive Fix
-                      </span>
-                      <span className="text-[10px] text-[#4F6BED] font-mono font-semibold">
-                        One-Click
+                        {currentDraft.content_type === 'text' ? 'Suggested text replacement' : 'Recommended asset change'}
                       </span>
                     </div>
                     <p className="text-[#E8ECF8] font-medium text-xs break-words">
                       "{flag.fix}"
                     </p>
+                    {currentDraft.content_type !== 'text' && (
+                      <p className="text-[11px] leading-relaxed text-[#AAB4D0]">
+                        This recommendation does not edit the uploaded file. Update the source asset, upload a replacement, and re-scan it.
+                      </p>
+                    )}
                   </div>
 
                   {/* Inline Custom Fix Editor */}
-                  {editingFlagId === flag.id && (
+                  {currentDraft.content_type === 'text' && editingFlagId === flag.id && (
                     <div className="space-y-2 bg-[#0E1428] p-3 rounded-xl border border-[#4F6BED]/50 motion-safe:animate-fade-in">
                       <label htmlFor={`custom-fix-${flag.id}`} className="block text-[11px] font-medium text-[#AAB4D0]">
                         Customize Replacement Text:
@@ -1298,23 +1301,27 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
                       type="button"
                       onClick={() => handleResolve(flag.id, 'accepted')}
                       className="flex-1 flex items-center justify-center space-x-1.5 bg-[#34D399]/15 hover:bg-[#34D399]/25 text-[#34D399] border border-[#34D399]/30 py-2 rounded-xl text-xs font-semibold transition-all shadow-sm"
-                      title="Accept the non-destructive fix and update draft"
+                      title={currentDraft.content_type === 'text'
+                        ? 'Apply the suggested text replacement and re-scan the new revision'
+                        : 'Confirm this finding; the uploaded file will not be changed'}
                     >
                       <Check className="w-3.5 h-3.5" />
-                      <span>Accept Fix</span>
+                      <span>{currentDraft.content_type === 'text' ? 'Apply & re-scan' : 'Confirm finding'}</span>
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEditingFlagId(flag.id);
-                        setCustomFixText(flag.fix || '');
-                      }}
-                      className="flex items-center justify-center space-x-1 bg-[#0E1428] hover:bg-[#172040] text-[#AAB4D0] hover:text-[#E8ECF8] px-3.5 py-2 rounded-xl text-xs font-medium border border-[#1F2A4A] transition-colors"
-                      title="Edit replacement text before applying"
-                    >
-                      <Edit3 className="w-3.5 h-3.5" />
-                      <span>Edit</span>
-                    </button>
+                    {currentDraft.content_type === 'text' && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingFlagId(flag.id);
+                          setCustomFixText(flag.fix || '');
+                        }}
+                        className="flex items-center justify-center space-x-1 bg-[#0E1428] hover:bg-[#172040] text-[#AAB4D0] hover:text-[#E8ECF8] px-3.5 py-2 rounded-xl text-xs font-medium border border-[#1F2A4A] transition-colors"
+                        title="Edit replacement text before applying"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                        <span>Edit</span>
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => setActiveDismissModal(flag.id)}
@@ -1392,12 +1399,14 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
                       rf.resolution === 'edited' ? 'text-[#60A5FA] bg-[#4F6BED]/15 border-[#4F6BED]/30' :
                       'text-[#FBBF24] bg-[#FBBF24]/15 border-[#FBBF24]/30'
                     }`}>
-                      {rf.resolution === 'accepted' ? 'Accepted' : rf.resolution === 'edited' ? 'Custom Fix' : 'Dismissed'}
+                      {rf.resolution === 'accepted'
+                        ? currentDraft.content_type === 'text' ? 'Applied' : 'Confirmed'
+                        : rf.resolution === 'edited' ? 'Custom fix' : 'Dismissed'}
                     </span>
                   </div>
                   {rf.span && (
                     <div className="text-[11px] text-[#7C88AB] truncate">
-                      Offending: <span className="text-[#AAB4D0] italic">"{rf.span}"</span>
+                      Finding: <span className="text-[#AAB4D0] italic">"{rf.span}"</span>
                     </div>
                   )}
                   {rf.resolution_comment && (

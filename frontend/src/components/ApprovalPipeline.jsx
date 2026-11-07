@@ -19,7 +19,7 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [showCertModal, setShowCertModal] = useState(false);
+  const [showReviewSummary, setShowReviewSummary] = useState(false);
   const [failedMediaDraftId, setFailedMediaDraftId] = useState(null);
   const mediaElementRef = useRef(null);
 
@@ -144,9 +144,15 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
     currentDraft?.content_type === 'text' ? currentDraft.content_ref : ''
   );
   const mediaAnalysis = latestRev?.media_analysis || {};
-  const acceptedFlags = flags.filter(f => f.resolution === 'accepted' || f.resolution === 'edited');
-  const dismissedFlags = flags.filter(f => f.resolution === 'dismissed');
-  const issueCount = flags.length;
+  const resolutionHistory = (currentDraft?.history || []).flatMap(revision =>
+    (revision.flags || [])
+      .filter(flag => flag.resolution !== 'pending')
+      .map(flag => ({ ...flag, version_num: revision.version_num }))
+  );
+  const acceptedFlags = resolutionHistory.filter(f => f.resolution === 'accepted' || f.resolution === 'edited');
+  const dismissedFlags = resolutionHistory.filter(f => f.resolution === 'dismissed');
+  const findingCount = flags.length;
+  const isTextDraft = currentDraft?.content_type === 'text';
 
   const signOffRecord = currentDraft?.status === 'Approved'
     ? (() => {
@@ -172,36 +178,36 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
       })()
     : null;
 
-  const certTimestamp = signOffRecord?.timestamp || currentDraft?.updated_at || currentDraft?.created_at || null;
+  const summaryTimestamp = signOffRecord?.timestamp || currentDraft?.updated_at || currentDraft?.created_at || null;
 
-  const exportCertificate = () => {
+  const exportReviewSummary = () => {
     if (!currentDraft) return;
-    const cert = {
-      title: "Brand Governance Compliance Certificate",
-      platform: "Inkloom AI Intelligent Governance Platform",
+    const summary = {
+      title: "Draft Review Summary",
       draft_id: currentDraft.id,
       draft_title: currentDraft.title,
       author: currentDraft.author_name || "Creator",
       current_status: currentDraft.status,
-      compliance_score: latestRev ? `${latestRev.compliance_score}%` : 'Not scanned',
-      guideline_version_used: activeGuidelineVersion
-        ? `Inkloom Master Guidelines ${activeGuidelineVersion} (Active)`
+      scan_findings: latestRev?.flags?.length ?? null,
+      current_guideline_version: activeGuidelineVersion
+        ? activeGuidelineVersion
         : 'Active guideline version unavailable',
-      sign_off_status: signOffRecord
-        ? "Signed"
-        : (currentDraft.status === 'In Revision' ? 'Unsigned (In Revision)' : `Unsigned (${currentDraft.status})`),
-      signed_off_by: signOffRecord ? signOffRecord.user_name : null,
+      scan_coverage: latestRev?.policy_coverage_status || 'not_scanned',
+      scan_coverage_note: latestRev?.policy_coverage_reason || null,
+      approval_status: signOffRecord ? 'Approved' : currentDraft.status,
+      approved_by: signOffRecord ? signOffRecord.user_name : null,
       reviewer_role: signOffRecord ? signOffRecord.user_role : null,
-      sign_off_notes: signOffRecord?.comment || null,
-      timestamp: certTimestamp,
-      flags_audited: issueCount
+      reviewer_note: signOffRecord?.comment || null,
+      last_updated_at: summaryTimestamp,
+      findings_count: findingCount
     };
-    const blob = new Blob([JSON.stringify(cert, null, 2)], { type: 'application/json' });
+    const blob = new Blob([JSON.stringify(summary, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `brand-compliance-${currentDraft.id}.json`;
+    a.download = `draft-review-${currentDraft.id}.json`;
     a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
   };
 
   const pendingCount = drafts.filter(d => d.status === 'Pending Approval').length;
@@ -358,7 +364,7 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
         </div>
       </div>
 
-      {/* Right: Pre-Audited Draft Review & Decision Panel */}
+      {/* Draft review and decision panel */}
       <div className="lg:col-span-8 space-y-4">
         {currentDraft && selectedDraftIsVisible ? (
           <div className="bg-[#111830] border border-[#1F2A4A] rounded-2xl p-5 sm:p-6 space-y-5 shadow-xl">
@@ -367,7 +373,7 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
               <div>
                 <div className="flex items-center space-x-2">
                   <span className="text-xs font-mono bg-[#4F6BED]/10 text-[#60A5FA] border border-[#4F6BED]/20 px-2 py-0.5 rounded-lg">
-                    Guideline {activeGuidelineVersion || 'version unavailable'}
+                    Current guideline {activeGuidelineVersion || 'version unavailable'}
                   </span>
                   <span className={`text-xs px-2.5 py-0.5 rounded-full font-semibold border ${
                     statusStyles[currentDraft.status] || 'bg-[#7C88AB]/15 text-[#AAB4D0] border-[#7C88AB]/30'
@@ -376,7 +382,7 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
                   </span>
                   <span className="text-xs font-mono text-[#2DD4BF] bg-[#2DD4BF]/10 px-2 py-0.5 rounded-lg border border-[#2DD4BF]/20">
                     {currentDraft.latest_revision
-                      ? `${currentDraft.latest_revision.compliance_score}% alignment`
+                      ? `${currentDraft.latest_revision.flags?.length || 0} finding(s)`
                       : 'Not scanned'}
                   </span>
                 </div>
@@ -384,7 +390,7 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
                   {currentDraft.title}
                 </h2>
                 <p className="text-xs text-[#7C88AB] mt-0.5">
-                  Author: <span className="text-[#AAB4D0] font-medium">{currentDraft.author_name || 'Creator'}</span> • Version: <span className="font-mono text-[#AAB4D0]">v{currentDraft.current_version}</span> • Content Type: <span className="capitalize text-[#AAB4D0] font-medium">{currentDraft.content_type}</span>
+                  Author: <span className="text-[#AAB4D0] font-medium">{currentDraft.author_name || 'Creator'}</span> • Version: <span className="font-mono text-[#AAB4D0]">v{currentDraft.current_version}</span> • Type: <span className="capitalize text-[#AAB4D0] font-medium">{currentDraft.content_type}</span>
                 </p>
               </div>
 
@@ -392,12 +398,12 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
               <div className="flex items-center space-x-2">
                 <button
                   type="button"
-                  onClick={() => setShowCertModal(true)}
+                  onClick={() => setShowReviewSummary(true)}
                   className="flex items-center space-x-1.5 bg-[#0E1428] hover:bg-[#172040] text-[#AAB4D0] hover:text-[#E8ECF8] px-3 py-1.5 rounded-lg text-xs font-medium border border-[#1F2A4A] transition-colors shadow-sm"
-                  title="View and download verifiable compliance certificate"
+                  title="View or download this draft's review summary"
                 >
                   <FileCheck className="w-3.5 h-3.5 text-[#4F6BED]" />
-                  <span>Audit Certificate</span>
+                  <span>Review summary</span>
                 </button>
 
                 {currentDraft.status === 'Pending Approval' && (
@@ -417,29 +423,36 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
                       className="flex items-center space-x-1.5 bg-[#34D399] hover:bg-[#10B981] text-[#0A0F1E] px-3.5 py-1.5 rounded-lg text-xs font-bold shadow-md shadow-[#34D399]/20 transition-all"
                     >
                       <CheckCircle2 className="w-3.5 h-3.5" />
-                      <span>Approve & Sign-Off</span>
+                      <span>Approve draft</span>
                     </button>
                   </>
                 )}
               </div>
             </div>
 
+            {latestRev?.policy_coverage_status === 'needs_review' && (
+              <div role="status" className="rounded-xl border border-[#FBBF24]/40 bg-[#FBBF24]/10 px-3.5 py-3 text-xs text-[#FBBF24]">
+                <span className="font-semibold">Automated review is incomplete.</span>{' '}
+                {latestRev.policy_coverage_reason || 'Review the full asset before approving.'}
+              </div>
+            )}
+
             {/* Decision Confirmation Form (when decision triggered) */}
             {decisionModal && (
               <div className="bg-[#0E1428] border border-[#4F6BED]/50 rounded-xl p-4 space-y-3 motion-safe:animate-fade-in shadow-lg">
                 <h4 className="text-xs font-bold text-[#E8ECF8] uppercase flex items-center gap-1.5">
                   <ShieldCheck className="w-4 h-4 text-[#4F6BED]" />
-                  Confirm Managerial Action: <span className={decisionModal === 'Approved' ? 'text-[#34D399]' : 'text-[#F87171]'}>{decisionModal}</span>
+                  Confirm review decision: <span className={decisionModal === 'Approved' ? 'text-[#34D399]' : 'text-[#F87171]'}>{decisionModal}</span>
                 </h4>
                 <p className="text-xs text-[#AAB4D0]">
-                  Provide mandatory sign-off directives or feedback for the creator:
+                  Add a review note or specific feedback for the creator:
                 </p>
                 <textarea
                   value={decisionComment}
                   onChange={e => setDecisionComment(e.target.value)}
                   placeholder={decisionModal === 'Changes Requested'
                     ? 'List the specific edits needed, ideally referencing the text, frame, or timestamp.'
-                    : 'Optional sign-off note, e.g. verified against Fact Sheet v3.'}
+                    : 'Optional reviewer note, e.g. Fact Sheet v3 consulted.'}
                   rows={2}
                   autoFocus
                   className="w-full bg-[#111830] border border-[#1F2A4A] rounded-lg p-2.5 text-xs text-[#E8ECF8] placeholder-[#7C88AB] focus:outline-none focus:border-[#4F6BED] focus:ring-1 focus:ring-[#4F6BED]"
@@ -476,10 +489,10 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
               </div>
             )}
 
-            {/* Pre-Audited Content Snapshot */}
+            {/* Draft content snapshot */}
             <div className="space-y-2">
               <h3 className="text-xs font-bold uppercase tracking-wider text-text-muted">
-                Pre-Audited Content Snapshot (v{currentDraft.current_version})
+                Draft snapshot (v{currentDraft.current_version})
               </h3>
               <div className="bg-surface-subtle border border-border rounded-xl p-4 text-text-primary max-h-[34rem] overflow-y-auto">
                 {currentDraft.content_type === 'text' ? (
@@ -535,7 +548,7 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
                               ) : (
                                 <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-primary/15 border border-primary/30 text-primary">
                                   <ImageIcon className="w-3 h-3" />
-                                  Production Creative Asset
+                                  Uploaded asset
                                 </span>
                               )}
                               <span className="text-[10px] font-mono text-text-muted">
@@ -562,7 +575,7 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
                             ) : (
                               <div className="w-full mt-2 text-[11px] text-text-muted flex items-center justify-between">
                                 <span>Asset reference: <code className="font-mono text-[10px] text-text-secondary">{currentDraft.content_ref?.split('/').pop()}</code></span>
-                                <span>Multimodal review asset</span>
+                                <span>Uploaded file</span>
                               </div>
                             )}
                           </div>
@@ -632,13 +645,18 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
                 </h3>
                 <span className="text-[10px] font-mono text-text-muted">{flags.length} finding(s)</span>
               </div>
+              {!isTextDraft && (
+                <p className="rounded-lg border border-border bg-surface-subtle p-2.5 text-[11px] leading-relaxed text-text-secondary">
+                  Findings may refer to OCR text, transcript content, or sampled video frames. Suggested changes do not modify the uploaded media; ask for an updated source file when needed.
+                </p>
+              )}
               {!latestRev ? (
                 <p className="rounded-xl border border-warning/30 bg-warning/10 p-3 text-xs text-warning">
                   No scan findings are available yet. Review the submitted asset manually; do not treat the absence of findings as proof of compliance.
                 </p>
               ) : flags.length === 0 ? (
                 <p className="rounded-xl border border-border bg-surface-subtle p-3 text-xs text-text-secondary">
-                  No automated findings were recorded for this revision. Please complete the human review before sign-off.
+                  No automated findings were recorded for this revision. Complete the human review before approval.
                 </p>
               ) : (
                 <div className="space-y-2">
@@ -659,7 +677,8 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
                       <p className="text-xs leading-relaxed text-text-secondary">{flag.explanation}</p>
                       {flag.fix && (
                         <p className="text-xs text-text-secondary">
-                          Suggested change: <span className="font-medium text-text-primary">{flag.fix}</span>
+                          {isTextDraft ? 'Suggested text replacement: ' : 'Suggested asset change: '}
+                          <span className="font-medium text-text-primary">{flag.fix}</span>
                         </p>
                       )}
                       {(Number.isFinite(flag.start_time) || Number.isInteger(flag.frame_number)) && (
@@ -678,32 +697,40 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
             {/* AI Audit Trail (Flags accepted, edited, dismissed) */}
             <div className="space-y-3">
               <h3 className="text-xs font-bold uppercase tracking-wider text-[#7C88AB] flex items-center justify-between">
-                <span>AI Findings & Creator Resolution Audit Trail</span>
+                <span>Finding resolution history</span>
                 <span className="text-[11px] font-mono text-[#AAB4D0]">
-                  {acceptedFlags.length} Accepted • {dismissedFlags.length} Creator Overrides
+                  {acceptedFlags.length} {isTextDraft ? 'accepted' : 'confirmed'} • {dismissedFlags.length} dismissed
                 </span>
               </h3>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {/* Accepted Fixes */}
+                {/* Recorded suggestions */}
                 <div className="bg-[#0E1428] border border-[#34D399]/20 rounded-xl p-3.5 space-y-2.5">
                   <span className="text-xs font-semibold text-[#34D399] flex items-center gap-1.5">
                     <CheckCircle2 className="w-3.5 h-3.5" />
-                    Accepted Brand Corrections ({acceptedFlags.length})
+                    {isTextDraft ? 'Accepted text suggestions' : 'Findings confirmed'} ({acceptedFlags.length})
                   </span>
                   {acceptedFlags.length === 0 ? (
-                    <p className="text-[11px] text-[#7C88AB] italic">No automated corrections applied.</p>
+                    <p className="text-[11px] text-[#7C88AB] italic">No findings in this revision were confirmed.</p>
                   ) : (
                     <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
                       {acceptedFlags.map(af => (
                         <div key={af.id} className="text-xs border-b border-[#1F2A4A]/60 pb-2 last:border-0 space-y-0.5">
                           <div className="flex items-center justify-between text-[11px]">
                             <span className="font-mono text-[#60A5FA] font-bold">{af.rule_id}</span>
-                            <span className="text-[#7C88AB] uppercase text-[10px]">{af.category}</span>
+                            <span className="text-[#7C88AB] uppercase text-[10px]">
+                              {af.category} · v{af.version_num}
+                            </span>
                           </div>
                           <p className="text-[#AAB4D0] text-[11px] leading-snug">
-                            Replaced <span className="text-[#F87171] line-through">"{af.span}"</span> with{' '}
-                            <span className="text-[#34D399] font-semibold">"{af.fix}"</span>
+                            {isTextDraft ? (
+                              <>
+                                Replaced <span className="text-[#F87171] line-through">"{af.span}"</span> with{' '}
+                                <span className="text-[#34D399] font-semibold">"{af.fix}"</span>
+                              </>
+                            ) : (
+                              <>Confirmed finding. Suggested change: <span className="text-[#34D399] font-semibold">"{af.fix}"</span></>
+                            )}
                           </p>
                         </div>
                       ))}
@@ -725,7 +752,9 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
                         <div key={df.id} className="text-xs border-b border-[#1F2A4A]/60 pb-2 last:border-0 space-y-0.5">
                           <div className="flex items-center justify-between text-[11px]">
                             <span className="font-mono text-[#FBBF24] font-bold">{df.rule_id}</span>
-                            <span className="text-[#7C88AB] text-[10px] truncate max-w-[120px]">"{df.span}"</span>
+                            <span className="text-[#7C88AB] text-[10px] truncate max-w-[120px]">
+                              v{df.version_num} · "{df.span}"
+                            </span>
                           </div>
                           <p className="text-[#E8ECF8] text-[11px] italic bg-[#111830] p-1.5 rounded-lg border border-[#1F2A4A]">
                             Reason: "{df.resolution_comment || 'Artistic discretion'}"
@@ -802,15 +831,15 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
         )}
       </div>
 
-      {/* Verifiable Compliance Certificate Preview Modal */}
-      {showCertModal && currentDraft && (
+      {/* Draft review summary preview */}
+      {showReviewSummary && currentDraft && (
         <div
           role="dialog"
           aria-modal="true"
           className="fixed inset-0 bg-[#0A0F1E]/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 motion-safe:animate-fade-in"
         >
           <div className="bg-[#111830] border border-[#4F6BED]/50 rounded-2xl max-w-lg w-full p-6 space-y-5 shadow-2xl shadow-black/80 relative">
-            {/* Certificate Header */}
+            {/* Review summary header */}
             <div className="flex items-start justify-between border-b border-[#1F2A4A] pb-3.5">
               <div className="flex items-center space-x-3">
                 <div className="w-10 h-10 rounded-xl bg-[#4F6BED]/20 border border-[#4F6BED]/40 flex items-center justify-center text-[#4F6BED] shrink-0 shadow-md shadow-[#4F6BED]/20">
@@ -818,27 +847,27 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
                 </div>
                 <div>
                   <h3 className="text-sm font-bold text-[#E8ECF8] uppercase tracking-wide">
-                    Brand Governance Certificate
+                    Draft Review Summary
                   </h3>
-                  <p className="text-[11px] text-[#2DD4BF] font-mono">
-                    Inkloom AI Intelligent Governance Platform
+                  <p className="text-[11px] text-[#7C88AB] font-mono">
+                    Review record for this draft
                   </p>
                 </div>
               </div>
               <button
                 type="button"
-                onClick={() => setShowCertModal(false)}
+                onClick={() => setShowReviewSummary(false)}
                 className="text-[#7C88AB] hover:text-[#E8ECF8] hover:bg-[#172040] p-1.5 rounded-lg transition-colors"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            {/* Official Certificate Sheet Preview */}
+            {/* Review summary details */}
             <div className="bg-[#0E1428] border border-[#1F2A4A] rounded-xl p-4 space-y-3.5 font-sans text-xs">
               <div className="flex items-center justify-between border-b border-[#1F2A4A]/60 pb-2">
                 <span className="text-[11px] text-[#7C88AB] font-mono">
-                  Verification ID: <span className="text-[#60A5FA] font-bold">CERT-{currentDraft.id.slice(0, 8).toUpperCase()}</span>
+                  Draft ID: <span className="text-[#60A5FA] font-bold">{currentDraft.id}</span>
                 </span>
                 <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full border ${
                   statusStyles[currentDraft.status] || 'bg-[#7C88AB]/15 text-[#AAB4D0] border-[#7C88AB]/30'
@@ -857,16 +886,16 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
                   <span className="text-[#E8ECF8] font-medium">{currentDraft.author_name || 'Creator'}</span>
                 </div>
                 <div>
-                  <span className="text-[#7C88AB] block text-[10px] uppercase font-semibold">Compliance Alignment</span>
+                  <span className="text-[#7C88AB] block text-[10px] uppercase font-semibold">Latest scan findings</span>
                   <span className="text-[#34D399] font-bold font-mono">
                     {currentDraft.latest_revision
-                      ? `${currentDraft.latest_revision.compliance_score}% Alignment`
+                      ? `${currentDraft.latest_revision.flags?.length || 0} finding(s)`
                       : 'Not scanned'}
                   </span>
                 </div>
                 <div>
                   <span className="text-[#7C88AB] block text-[10px] uppercase font-semibold">
-                    {signOffRecord ? 'Signed-Off By' : 'Sign-Off Status'}
+                    {signOffRecord ? 'Approved by' : 'Approval status'}
                   </span>
                   {signOffRecord ? (
                     <span className="text-[#E8ECF8] font-medium">
@@ -876,36 +905,36 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
                   ) : currentDraft.status === 'In Revision' ? (
                     <span className="text-[#FBBF24] font-medium flex items-center gap-1.5">
                       <span className="w-1.5 h-1.5 rounded-full bg-[#FBBF24]"></span>
-                      Unsigned — In Revision
+                      Not approved — In revision
                     </span>
                   ) : currentDraft.status === 'Pending Approval' ? (
                     <span className="text-[#A78BFA] font-medium flex items-center gap-1.5">
                       <span className="w-1.5 h-1.5 rounded-full bg-[#A78BFA] animate-pulse"></span>
-                      Pending Approval (Unsigned)
+                      Pending approval
                     </span>
                   ) : currentDraft.status === 'Changes Requested' ? (
                     <span className="text-[#F87171] font-medium flex items-center gap-1.5">
                       <span className="w-1.5 h-1.5 rounded-full bg-[#F87171]"></span>
-                      Changes Requested (Unsigned)
+                      Changes requested
                     </span>
                   ) : (
                     <span className="text-[#7C88AB] font-medium flex items-center gap-1.5">
                       <span className="w-1.5 h-1.5 rounded-full bg-[#7C88AB]"></span>
-                      Unsigned ({currentDraft.status})
+                      Not approved — {currentDraft.status}
                     </span>
                   )}
                 </div>
                 <div className="col-span-2">
-                  <span className="text-[#7C88AB] block text-[10px] uppercase font-semibold">Active Guideline Version</span>
+                  <span className="text-[#7C88AB] block text-[10px] uppercase font-semibold">Current guideline version</span>
                   <span className="text-[#AAB4D0] font-mono text-[11px]">
                     {activeGuidelineVersion
-                      ? `Inkloom Master Guidelines ${activeGuidelineVersion} (Active)`
+                      ? activeGuidelineVersion
                       : 'Active guideline version unavailable'}
                   </span>
                 </div>
                 <div className="col-span-2 flex items-center justify-between text-[11px] text-[#7C88AB] pt-1 border-t border-[#1F2A4A]/60 font-mono">
-                  <span>Audited Issues: {issueCount}</span>
-                  <span>{signOffRecord ? 'Issued' : 'Updated'}: {certTimestamp ? new Date(certTimestamp).toLocaleDateString() : 'Pending'}</span>
+                  <span>Findings: {findingCount}</span>
+                  <span>Last updated: {summaryTimestamp ? new Date(summaryTimestamp).toLocaleDateString() : 'Unknown'}</span>
                 </div>
               </div>
             </div>
@@ -914,18 +943,18 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
             <div className="flex items-center justify-end space-x-2 pt-1 border-t border-[#1F2A4A]">
               <button
                 type="button"
-                onClick={() => setShowCertModal(false)}
+                onClick={() => setShowReviewSummary(false)}
                 className="px-3.5 py-2 text-xs font-medium text-[#7C88AB] hover:text-[#E8ECF8] rounded-xl hover:bg-[#172040] transition-colors"
               >
                 Close Preview
               </button>
               <button
                 type="button"
-                onClick={exportCertificate}
+                onClick={exportReviewSummary}
                 className="flex items-center space-x-1.5 bg-[#4F6BED] hover:bg-[#6479F2] text-white px-4 py-2 rounded-xl text-xs font-semibold shadow-md shadow-[#4F6BED]/20 transition-all"
               >
                 <Download className="w-3.5 h-3.5" />
-                <span>Download JSON Certificate</span>
+                <span>Download JSON summary</span>
               </button>
             </div>
           </div>

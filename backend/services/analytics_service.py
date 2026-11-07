@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 class AnalyticsService:
     """
     Governance Analytics Engine:
-    Tracks repeated mistakes, top flagged terms, compliance rate trends,
+    Tracks repeated mistakes, top flagged terms, review outcomes,
     AI flag precision, and generates actionable guideline improvement insights.
     """
 
@@ -47,22 +47,21 @@ class AnalyticsService:
             dismissed_cnt = resolution_counts.get('dismissed', 0)
             total_resolved = accepted_cnt + edited_cnt + dismissed_cnt
 
-            # Flag Precision: (Accepted + Edited) / Total Resolved
-            if total_resolved > 0:
-                flag_precision = round(((accepted_cnt + edited_cnt) / total_resolved) * 100, 1)
-            else:
-                flag_precision = None
-
-            # First-pass compliance is calculated only from initial revisions and their stored scan scores.
+            # Report first scans with no findings and complete policy coverage, not as compliance.
             cursor.execute("""
-                SELECT r.compliance_score
+                SELECT r.id, r.policy_coverage_status, COUNT(f.id) AS flags_count
                 FROM revisions r
                 JOIN drafts d ON r.draft_id = d.id
+                LEFT JOIN flags f ON f.revision_id = r.id
                 WHERE d.org_id = ? AND r.version_num = 1
+                GROUP BY r.id
             """, (org_id,))
             initial_revs = cursor.fetchall()
             if initial_revs:
-                pass_count = sum(1 for r in initial_revs if r['compliance_score'] >= 80.0)
+                pass_count = sum(
+                    1 for r in initial_revs
+                    if r['policy_coverage_status'] == 'covered' and r['flags_count'] == 0
+                )
                 first_pass_rate = round((pass_count / len(initial_revs)) * 100, 1)
             else:
                 first_pass_rate = None
@@ -153,7 +152,6 @@ class AnalyticsService:
             # 7. Daily compliance & activity time-series trends
             cursor.execute("""
                 SELECT substr(r.created_at, 1, 10) as scan_date,
-                       ROUND(CAST(AVG(r.compliance_score) AS NUMERIC), 1) as avg_compliance,
                        COUNT(DISTINCT r.id) as scan_count,
                        COUNT(f.id) as flag_count
                 FROM revisions r
@@ -170,10 +168,9 @@ class AnalyticsService:
             "summary": {
                 "total_drafts": total_drafts,
                 "approved_drafts": approved_drafts,
-                "flag_precision": flag_precision,
-                "target_precision": 85.0,
-                "first_pass_compliance_rate": first_pass_rate,
-                "target_first_pass": 80.0,
+                "accepted_or_edited_suggestions": accepted_cnt + edited_cnt,
+                "dismissed_suggestions": dismissed_cnt,
+                "initial_scans_without_findings_rate": first_pass_rate,
                 "avg_approval_turnaround_seconds": avg_approval_turnaround_seconds,
                 "avg_scan_duration_seconds": avg_scan_duration_seconds
             },
@@ -208,7 +205,6 @@ class AnalyticsService:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT substr(r.created_at, 1, 10) AS date,
-                       ROUND(CAST(AVG(r.compliance_score) AS NUMERIC), 1) AS compliance_score,
                        COUNT(DISTINCT r.id) AS scans,
                        COUNT(f.id) AS flags
                 FROM revisions r

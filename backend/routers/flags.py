@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from backend.database import get_db
 from backend.schemas import FlagResolveRequest
@@ -14,18 +14,13 @@ def resolve_flag(
     current_user: dict = Depends(require_role("creator", "admin"))
 ):
     x_user_id = current_user["id"]
-    """
-    Human-in-the-Loop Collaboration on AI Flags:
-    - Accept: Replaces off-brand span with suggested fix
-    - Edit: Replaces off-brand span with user's customized fix
-    - Dismiss: Retains span and logs creator's reason/comment
-    """
-    now = datetime.utcnow().isoformat() + "Z"
+    now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT f.*, r.draft_id, r.version_num, r.content_text, d.org_id
+            SELECT f.*, r.draft_id, r.version_num, r.content_text,
+                   d.org_id, d.content_type
             FROM flags f
             JOIN revisions r ON f.revision_id = r.id
             JOIN drafts d ON r.draft_id = d.id
@@ -37,30 +32,57 @@ def resolve_flag(
 
         draft_id = row['draft_id']
         org_id = row['org_id']
+        content_type = row['content_type']
         current_text = row['content_text'] or ""
         span = row['span']
-        replacement_text = None
+        updated_text = None
 
-        if req.resolution == 'accepted':
-            replacement_text = row['fix']
-        elif req.resolution == 'edited':
-            replacement_text = req.edited_fix or row['fix']
-        elif req.resolution == 'dismissed':
-            replacement_text = None
-
-        updated_text = current_text
-        if replacement_text and span in current_text:
-            # Replace offending span with fix
-            updated_text = current_text.replace(span, replacement_text, 1)
-
-            # Update revision text and draft content_ref
-            cursor.execute("""
-                UPDATE revisions SET content_text = ? WHERE id = ?
-            """, (updated_text, row['revision_id']))
-
-            cursor.execute("""
-                UPDATE drafts SET content_ref = ?, updated_at = ? WHERE id = ?
-            """, (updated_text, now, draft_id))
+        if content_type == "text" and req.resolution in {"accepted", "edited"}:
+            replacement_text = (
+                req.edited_fix
+                if req.resolution == "edited" and req.edited_fix is not None
+                else row["fix"]
+            )
+            if not replacement_text or not replacement_text.strip():
+                raise HTTPException(status_code=409, detail="No replacement text is available for this finding.")
+            if replacement_text == span:
+                raise HTTPException(status_code=409, detail="The replacement is identical to the flagged text.")
+            start_idx = row.get("start_idx", -1)
+            end_idx = row.get("end_idx", -1)
+            has_valid_span_range = (
+                isinstance(start_idx, int)
+                and isinstance(end_idx, int)
+                and 0 <= start_idx < end_idx <= len(current_text)
+                and current_text[start_idx:end_idx] == span
+            )
+            if has_valid_span_range:
+                span_start = start_idx
+            elif span:
+                span_start = current_text.find(span)
+                if span_start >= 0 and current_text.find(span, span_start + len(span)) >= 0:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="This finding matches multiple text locations. Re-scan the latest revision before resolving it.",
+                    )
+            else:
+                span_start = -1
+            if span_start < 0:
+                raise HTTPException(
+                    status_code=409,
+                    detail="This finding no longer matches the draft text. Re-scan the latest revision before resolving it.",
+                )
+            span_end = span_start + len(span)
+            updated_text = current_text[:span_start] + replacement_text + current_text[span_end:]
+            if updated_text != current_text:
+                cursor.execute(
+                    "UPDATE drafts SET content_ref = ?, updated_at = ? WHERE id = ?",
+                    (updated_text, now, draft_id),
+                )
+        elif content_type != "text" and req.resolution == "edited":
+            raise HTTPException(
+                status_code=409,
+                detail="Text replacements cannot edit uploaded media. Update the source asset and upload a new revision.",
+            )
 
         # Update flag record
         cursor.execute("""
@@ -69,16 +91,6 @@ def resolve_flag(
             WHERE id = ?
         """, (req.resolution, req.comment, x_user_id, now, flag_id))
 
-        # Re-evaluate compliance score on revision
-        cursor.execute("""
-            SELECT COUNT(*) as pending_cnt FROM flags
-            WHERE revision_id = ? AND resolution = 'pending'
-        """, (row['revision_id'],))
-        remaining_pending = cursor.fetchone()['pending_cnt']
-
-        new_compliance = max(20.0, round(100.0 - (remaining_pending * 14.0), 1))
-        cursor.execute("UPDATE revisions SET compliance_score = ? WHERE id = ?", (new_compliance, row['revision_id']))
-
     AuditService.log(
         org_id, x_user_id, f"flag_{req.resolution}",
         {
@@ -86,6 +98,8 @@ def resolve_flag(
             "rule_id": row['rule_id'],
             "span": span,
             "resolution": req.resolution,
+            "content_type": content_type,
+            "suggestion_applied_to_text": updated_text is not None and updated_text != current_text,
             "comment": req.comment
         },
         draft_id=draft_id
@@ -96,5 +110,6 @@ def resolve_flag(
         "flag_id": flag_id,
         "resolution": req.resolution,
         "updated_text": updated_text,
-        "new_compliance_score": new_compliance
+        "rescan_required": updated_text is not None and updated_text != current_text,
+        "asset_update_required": content_type != "text" and req.resolution == "accepted"
     }

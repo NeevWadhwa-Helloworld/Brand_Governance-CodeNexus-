@@ -8,15 +8,68 @@ class DeterministicEngine:
     Implements terminology matching, approved fact verification,
     color palette validation, contrast ratio (WCAG AA/AAA), and logo version matching.
     """
+    PROFANITY_PATTERN = re.compile(
+        r"\b(?:fuck(?:ing|ed|er|ers)?(?:\s+you)?|shit(?:ty|ting)?|"
+        r"bitch(?:es)?|assholes?|bastards?|cunts?)\b",
+        re.IGNORECASE,
+    )
+    DIRECT_THREAT_PATTERN = re.compile(
+        r"\b(?:kill|murder|hurt|harm)\s+"
+        r"(?:you(?:\s+all)?|them|him|her|everyone|all)\b",
+        re.IGNORECASE,
+    )
+    NUMERIC_CLAIM_PATTERN = re.compile(
+        r"\b(?:(?:we|our\s+(?:company|platform|service))\s+"
+        r"(?:serve|serves|support|supports|reach|reaches|have|has)\s+)?"
+        r"(?:(?P<qualifier>over|more than|nearly|about|approximately|approx\.?)\s+)?"
+        r"\$?\d[\d,]*(?:\.\d+)?\s*(?:k|m|b|thousand|million|billion)?\s+"
+        r"(?:active\s+)?(?:users?|customers?|clients?|subscribers?|employees?|"
+        r"downloads?|installs?|installations?|countries|markets|businesses|"
+        r"brands|creators|projects|years|hours|minutes)\b",
+        re.IGNORECASE,
+    )
+    NUMERIC_VALUE_PATTERN = re.compile(
+        r"\$?\s*(\d[\d,]*(?:\.\d+)?)\s*(k|m|b|thousand|million|billion)?",
+        re.IGNORECASE,
+    )
 
     @classmethod
     def run_all(cls, org_id: str, text: Optional[str] = None, image_path: Optional[str] = None) -> List[Dict[str, Any]]:
         flags = []
         if text:
+            flags.extend(cls.check_profanity(text))
             flags.extend(cls.check_terminology(org_id, text))
             flags.extend(cls.check_facts(org_id, text))
             flags.extend(cls.check_text_colors(org_id, text))
 
+        return flags
+
+    @classmethod
+    def check_profanity(cls, text: str) -> List[Dict[str, Any]]:
+        flags = []
+        patterns = (
+            (
+                cls.PROFANITY_PATTERN,
+                "This wording contains profanity that may be inappropriate for customer-facing brand content.",
+            ),
+            (
+                cls.DIRECT_THREAT_PATTERN,
+                "This wording reads as a direct threat of violence and is unsuitable for customer-facing content.",
+            ),
+        )
+        for pattern, explanation in patterns:
+            for match in pattern.finditer(text):
+                flags.append({
+                    "rule_id": "TONE-LANGUAGE-01",
+                    "category": "tone",
+                    "span": match.group(0),
+                    "start_idx": match.start(),
+                    "end_idx": match.end(),
+                    "explanation": explanation,
+                    "fix": "Please let us know how we can help.",
+                    "confidence": 1.0,
+                    "layer": "layer1_deterministic",
+                })
         return flags
 
     @classmethod
@@ -76,35 +129,84 @@ class DeterministicEngine:
             """, (org_id,))
             facts = cursor.fetchall()
 
+        for match in cls.NUMERIC_CLAIM_PATTERN.finditer(text):
+            span_text = match.group(0)
+            normalized_claim = cls._numeric_value(span_text)
+            metric_text = span_text.lower()
+            relevant_facts = [
+                fact for fact in facts
+                if cls._fact_matches_metric(fact, metric_text)
+            ]
+            claim_qualifier = cls._normalize_qualifier(match.group("qualifier"))
+            fact_evidence = [
+                (
+                    fact,
+                    cls._approved_fact_value(fact),
+                    cls._fact_qualifier(fact),
+                )
+                for fact in relevant_facts
+            ]
+            approved_values = {
+                (value, qualifier)
+                for _, value, qualifier in fact_evidence
+                if value is not None
+            }
+            if (
+                len(approved_values) == 1
+                and (normalized_claim, claim_qualifier) in approved_values
+            ):
+                continue
+
+            rule_id = next(
+                (fact.get("linked_rule_id") for fact in relevant_facts if fact.get("linked_rule_id")),
+                "FACT-UNVERIFIED-01",
+            )
+            approved_metric = next(
+                (fact.get("approved_metric") for fact, _, _ in fact_evidence if fact.get("approved_metric")),
+                None,
+            )
+            citation = next(
+                (fact.get("citation") for fact, _, _ in fact_evidence if fact.get("citation")),
+                None,
+            )
+            if len(approved_values) > 1:
+                explanation = (
+                    "Approved records contain conflicting figures for this metric. "
+                    "Confirm the current approved value and source before publishing."
+                )
+                fix = "Please confirm the current approved customer figure."
+            elif approved_values and approved_metric:
+                explanation = (
+                    f"This claim does not match the approved figure “{approved_metric}”."
+                    + (f" Source: {citation}." if citation else "")
+                )
+                fix = f"We serve {approved_metric}."
+            else:
+                explanation = (
+                    "This numerical claim could not be matched to an approved fact. "
+                    "Verify it with a current source before publishing."
+                )
+                fix = "We serve customers."
+
+            flags.append({
+                "rule_id": rule_id,
+                "category": "facts",
+                "span": span_text,
+                "start_idx": match.start(),
+                "end_idx": match.end(),
+                "explanation": explanation,
+                "fix": fix,
+                "confidence": 1.0,
+                "layer": "layer1_deterministic",
+            })
+
         for fact in facts:
             rule_id = fact.get('linked_rule_id') or "FACT-01"
             approved_metric = fact['approved_metric']
             citation = fact['citation']
 
-            # Check 1: User count fact check (as in report Section 3.2: "over 10,000 active users" -> FACT-01)
-            if fact['fact_key'] == 'active_users':
-                # Match phrases like "10,000 active users", "over 10,000 users", "15,000 active users", "10k users"
-                pattern = re.compile(r'\b(?:over|more than|approximately|approx\.?)?\s*([0-9]{1,2}(?:,[0-9]{3})|\d{1,2}k)\s*(?:active\s+)?users\b', re.IGNORECASE)
-                for match in pattern.finditer(text):
-                    span_text = match.group(0)
-                    # If it's already citing 50,000+, don't flag
-                    if "50,000" in span_text or "50k" in span_text.lower():
-                        continue
-
-                    flags.append({
-                        "rule_id": rule_id,
-                        "category": "facts",
-                        "span": span_text,
-                        "start_idx": match.start(),
-                        "end_idx": match.end(),
-                        "explanation": f"{citation} lists {approved_metric}. Outdated user count will mislead customers and create compliance exposure.",
-                        "fix": f"over {approved_metric}",
-                        "confidence": 0.98,
-                        "layer": "layer1_deterministic"
-                    })
-
             # Check 2: SLA uptime fact check
-            elif fact['fact_key'] == 'sla_uptime':
+            if fact['fact_key'] == 'sla_uptime':
                 pattern = re.compile(r'\b(100%|99\.99%)\s*(?:uptime|sla)\b', re.IGNORECASE)
                 for match in pattern.finditer(text):
                     span_text = match.group(0)
@@ -138,6 +240,89 @@ class DeterministicEngine:
                     })
 
         return flags
+
+    @classmethod
+    def _numeric_value(cls, text: str) -> Optional[float]:
+        match = cls.NUMERIC_VALUE_PATTERN.search(text or "")
+        if not match:
+            return None
+        value = float(match.group(1).replace(",", ""))
+        suffix = (match.group(2) or "").lower()
+        multiplier = {
+            "k": 1_000,
+            "thousand": 1_000,
+            "m": 1_000_000,
+            "million": 1_000_000,
+            "b": 1_000_000_000,
+            "billion": 1_000_000_000,
+        }.get(suffix, 1)
+        return value * multiplier
+
+    @classmethod
+    def _approved_fact_value(cls, fact: Dict[str, Any]) -> Optional[float]:
+        for key in ("approved_metric", "claim_text", "fact_key"):
+            value = cls._numeric_value(str(fact.get(key) or ""))
+            if value is not None:
+                return value
+        return None
+
+    @staticmethod
+    def _normalize_qualifier(qualifier: Optional[str]) -> Optional[str]:
+        if not qualifier:
+            return None
+        qualifier = qualifier.lower().rstrip(".")
+        if qualifier in {"over", "more than"}:
+            return "over"
+        if qualifier in {"about", "approximately", "approx", "nearly"}:
+            return qualifier
+        return qualifier
+
+    @classmethod
+    def _fact_qualifier(cls, fact: Dict[str, Any]) -> Optional[str]:
+        for key in ("approved_metric", "claim_text"):
+            match = re.search(
+                r"\b(over|more than|nearly|about|approximately|approx\.?)\s+"
+                r"\$?\d[\d,]*(?:\.\d+)?\s*(?:k|m|b|thousand|million|billion)?\b",
+                str(fact.get(key) or ""),
+                re.IGNORECASE,
+            )
+            if match:
+                return cls._normalize_qualifier(match.group(1))
+        return None
+
+    @staticmethod
+    def _fact_matches_metric(fact: Dict[str, Any], metric_text: str) -> bool:
+        fact_text = " ".join(
+            str(fact.get(key) or "")
+            for key in ("fact_key", "claim_text", "approved_metric")
+        ).lower()
+        metric_groups = {
+            "users": ("user", "customer", "client", "subscriber", "account"),
+            "customers": ("user", "customer", "client", "subscriber", "account"),
+            "clients": ("user", "customer", "client", "subscriber", "account"),
+            "subscribers": ("user", "customer", "client", "subscriber", "account"),
+            "employees": ("employee", "staff", "team member"),
+            "downloads": ("download", "install"),
+            "installs": ("download", "install"),
+            "installations": ("download", "install"),
+            "countries": ("country", "market", "region"),
+            "markets": ("country", "market", "region"),
+            "businesses": ("business", "company", "organization"),
+            "brands": ("brand",),
+            "creators": ("creator",),
+            "projects": ("project",),
+            "years": ("year",),
+            "hours": ("hour",),
+            "minutes": ("minute",),
+        }
+        claim_metric = next(
+            (metric for metric in metric_groups if re.search(rf"\b{metric}\b", metric_text)),
+            None,
+        )
+        return bool(
+            claim_metric
+            and any(term in fact_text for term in metric_groups[claim_metric])
+        )
 
     @classmethod
     def check_text_colors(cls, org_id: str, text: str) -> List[Dict[str, Any]]:
@@ -174,4 +359,3 @@ class DeterministicEngine:
                 })
 
         return flags
-

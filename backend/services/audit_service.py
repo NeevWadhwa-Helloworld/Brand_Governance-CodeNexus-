@@ -7,8 +7,7 @@ from backend.database import get_db
 
 class AuditService:
     """
-    Immutable audit logging service for all scans, overrides, flag resolutions,
-    and approval pipeline actions. (Section 6.2 Security and Privacy Measures)
+    Records audit events and links each entry to the previous entry with a SHA-256 hash.
     """
 
     @classmethod

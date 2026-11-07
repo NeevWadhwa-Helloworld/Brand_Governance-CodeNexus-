@@ -11,42 +11,43 @@ const ROLE_DETAILS = {
     label: 'Creator',
     badgeClass: 'bg-[#34D399]/15 text-[#34D399] border-[#34D399]/30',
     icon: Sparkles,
-    tagline: 'Draft Authoring & Real-Time AI Scanning',
-    description: 'Creators draft copy and upload media assets. They execute Layer 1 deterministic & Layer 2 semantic AI compliance scans, accept non-destructive guideline fixes, and submit finalized content to the approval queue.',
+    tagline: 'Create drafts and review findings',
+    description: 'Creators write text drafts or upload media, review scan findings, apply suggested text replacements, and submit drafts for approval.',
     permissions: [
       'Create and edit text copy drafts',
       'Upload banner images, audio clips, and video files',
-      'Execute real-time RAG brand compliance scans',
-      'Apply AI-generated non-destructive rewrite suggestions',
-      'Submit compliant drafts to the Reviewer Approval Queue'
+      'Run scans against the workspace guidelines',
+      'Apply suggested replacements to text drafts',
+      'Mark media findings reviewed or upload a revised asset',
+      'Submit drafts for approval'
     ]
   },
   reviewer: {
     label: 'Reviewer',
     badgeClass: 'bg-[#60A5FA]/15 text-[#60A5FA] border-[#60A5FA]/30',
     icon: Award,
-    tagline: 'Compliance Auditing & Sign-Off Authority',
-    description: 'Reviewers evaluate queued submissions against brand standards, audit rule violation evidence, participate in review threads, and issue cryptographic Brand Compliance Certificates.',
+    tagline: 'Review submissions and record decisions',
+    description: 'Reviewers inspect submitted content and scan evidence, leave comments, and approve drafts or request changes.',
     permissions: [
       'Inspect submissions in the Approval Queue',
-      'Audit rule grounding evidence & offending text spans',
+      'Inspect findings, extracted text, and media evidence',
       'Post comments and request revisions in discussion threads',
-      'Approve or reject drafts with documented rationale',
-      'Sign and issue cryptographic Brand Compliance Certificates'
+      'Approve drafts or request changes with a reason',
+      'Download a draft review summary'
     ]
   },
   admin: {
     label: 'Admin',
     badgeClass: 'bg-[#A78BFA]/15 text-[#A78BFA] border-[#A78BFA]/30',
     icon: Shield,
-    tagline: 'Platform Governance & Source of Truth Authority',
-    description: 'Platform Administrators configure organization brand standards, manage knowledge base rules, verify cryptographic SHA-256 audit trails, and provision team user accounts.',
+    tagline: 'Manage workspace guidelines and users',
+    description: 'Administrators manage workspace rules, approved facts, terminology, and user accounts.',
     permissions: [
       'Ingest and version new Brand Guideline documents',
       'Create, edit, and delete numbered rules & dictionaries',
-      'Inspect tenant-isolated cryptographic audit logs',
-      'Provision new team accounts and assign roles',
-      'Full governance access across all workspace tools'
+      'Review recent workspace audit activity',
+      'Create user accounts and assign roles',
+      'Access all workspace tools'
     ]
   }
 };
@@ -253,7 +254,7 @@ export default function UserManagement({ currentUser }) {
             {initialLoading ? '...' : reviewerCount}
           </div>
           <div className="text-[11px] text-[#7C88AB]">
-            Queue audits & sign-offs
+            Review approvals and decisions
           </div>
         </div>
 
@@ -418,7 +419,7 @@ export default function UserManagement({ currentUser }) {
                 className="w-full bg-[#0E1428] border border-[#1F2A4A] rounded-xl p-2 text-[#E8ECF8] focus:outline-none focus:border-[#4F6BED]"
               >
                 <option value="creator">Creator (Draft Studio & AI Scanner)</option>
-                <option value="reviewer">Reviewer (Approval Queue & Sign-Offs)</option>
+                <option value="reviewer">Reviewer (Approvals)</option>
               </select>
               <div className="text-[10px] text-[#7C88AB] mt-1">
                 {form.role === 'creator'

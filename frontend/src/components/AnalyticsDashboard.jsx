@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../api';
 import {
-  BarChart3, TrendingUp, CheckCircle2, AlertTriangle, Lightbulb,
+  BarChart3, CheckCircle2, AlertTriangle, Lightbulb,
   FileText, RefreshCw, Search, Activity
 } from 'lucide-react';
 
@@ -123,12 +123,10 @@ export default function AnalyticsDashboard() {
   const trendRows = trends.length > 0 ? trends : compliance_trends;
   const trendList = trendRows.map(t => ({
     date: t.date || t.scan_date,
-    score: finiteNumber(t.compliance_score ?? t.avg_compliance),
     scans: finiteNumber(t.scans ?? t.scan_count),
     flags: finiteNumber(t.flags ?? t.flag_count)
   })).filter(item =>
-    item.date && item.score !== null && item.score >= 0 && item.score <= 100
-    && item.scans !== null && item.scans >= 0 && item.flags !== null && item.flags >= 0
+    item.date && item.scans !== null && item.scans >= 0 && item.flags !== null && item.flags >= 0
   );
 
   // Chart Coordinate Calculations
@@ -138,12 +136,11 @@ export default function AnalyticsDashboard() {
   const paddingY = 25;
   const plotWidth = chartWidth - paddingX * 2;
   const plotHeight = chartHeight - paddingY * 2;
+  const maxDailyFindings = Math.max(1, ...trendList.map(item => item.flags));
 
   const points = trendList.map((item, index) => {
     const x = paddingX + (trendList.length > 1 ? (index / (trendList.length - 1)) * plotWidth : plotWidth / 2);
-    // Score is 0 - 100
-    const clampedScore = Math.max(0, Math.min(100, item.score));
-    const y = paddingY + plotHeight - (clampedScore / 100) * plotHeight;
+    const y = paddingY + plotHeight - (item.flags / maxDailyFindings) * plotHeight;
     return { x, y, ...item };
   });
 
@@ -155,10 +152,8 @@ export default function AnalyticsDashboard() {
     ? `${pathD} L ${points[points.length - 1].x.toFixed(1)} ${(paddingY + plotHeight).toFixed(1)} L ${points[0].x.toFixed(1)} ${(paddingY + plotHeight).toFixed(1)} Z`
     : '';
 
-  const firstPassTarget = finiteNumber(summary.target_first_pass);
-  const precisionTarget = finiteNumber(summary.target_precision);
-  const flagPrecision = finiteNumber(summary.flag_precision);
-  const firstPassRate = finiteNumber(summary.first_pass_compliance_rate);
+  const confirmedSuggestions = finiteNumber(summary.accepted_or_edited_suggestions);
+  const firstScanWithoutFindingsRate = finiteNumber(summary.initial_scans_without_findings_rate);
   const resolutionCounts = {
     accepted: finiteNumber(resolution_stats.accepted),
     edited: finiteNumber(resolution_stats.edited),
@@ -235,7 +230,7 @@ export default function AnalyticsDashboard() {
             </h2>
           </div>
           <p className="text-xs text-[#7C88AB] mt-1 ml-10.5">
-            Tracking organizational compliance trends, AI flag precision, and guideline clarity signals.
+            Tracking review outcomes, scan activity, and guideline clarity signals.
           </p>
         </div>
 
@@ -265,75 +260,47 @@ export default function AnalyticsDashboard() {
         </div>
       </div>
 
-      {/* KPI Metric Cards (Section 9.1 Evaluation Standard Alignment) */}
+      {/* Measured KPI cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Card 1: Flag Precision */}
+        {/* Card 1: Reviewer Outcomes */}
         <div className="bg-[#111830] border border-[#1F2A4A] rounded-2xl p-4 sm:p-5 space-y-2.5 shadow-xl relative overflow-hidden group hover:border-[#34D399]/40 transition-colors">
           <div className="flex items-center justify-between text-xs text-[#7C88AB]">
-            <span className="font-medium">AI Flag Precision</span>
-            {precisionTarget !== null && (
-              <span className="text-[#34D399] font-mono text-[10px] font-semibold bg-[#34D399]/10 border border-[#34D399]/20 px-2 py-0.5 rounded-full">
-                Target ≥ {precisionTarget}%
-              </span>
-            )}
+            <span className="font-medium">Accepted or edited suggestions</span>
           </div>
           <div className="text-2xl sm:text-3xl font-extrabold text-[#E8ECF8] font-mono flex items-baseline gap-2">
-            {flagPrecision === null ? 'Not measured' : `${flagPrecision}%`}
-            <span className="text-xs font-semibold text-[#34D399] flex items-center font-sans">
-              <TrendingUp className="w-3.5 h-3.5 mr-0.5" />
-              {flagPrecision === null
-                ? 'Needs review decisions'
-                : precisionTarget === null
-                  ? 'Measured'
-                  : flagPrecision >= precisionTarget ? 'On target' : 'Below target'}
-            </span>
+            {confirmedSuggestions ?? 'Not reported'}
           </div>
-          {flagPrecision !== null && (
-            <div className="w-full bg-[#0A0F1E] h-1.5 rounded-full overflow-hidden border border-[#1F2A4A]/60">
-              <div
-                className="bg-gradient-to-r from-[#10B981] to-[#34D399] h-full rounded-full transition-all duration-700"
-                style={{ width: `${Math.max(0, Math.min(100, flagPrecision))}%` }}
-              />
-            </div>
-          )}
           <p className="text-[11px] text-[#7C88AB] leading-relaxed">
-            Share of flagged issues accepted or edited by reviewers without dismissal.
+            Count of findings whose suggestions were accepted or edited by reviewers; this is not a precision estimate.
           </p>
         </div>
 
-        {/* Card 2: First-Pass Compliance */}
+        {/* Card 2: Initial Scan Findings */}
         <div className="bg-[#111830] border border-[#1F2A4A] rounded-2xl p-4 sm:p-5 space-y-2.5 shadow-xl relative overflow-hidden group hover:border-[#60A5FA]/40 transition-colors">
           <div className="flex items-center justify-between text-xs text-[#7C88AB]">
-            <span className="font-medium">First-Pass Compliance</span>
-            {firstPassTarget !== null && (
-              <span className="text-[#60A5FA] font-mono text-[10px] font-semibold bg-[#60A5FA]/10 border border-[#60A5FA]/20 px-2 py-0.5 rounded-full">
-                Target ≥ {firstPassTarget}%
-              </span>
-            )}
+            <span className="font-medium">Initial scans with no findings</span>
           </div>
           <div className="text-2xl sm:text-3xl font-extrabold text-[#E8ECF8] font-mono flex items-baseline gap-2">
-            {firstPassRate === null
+            {firstScanWithoutFindingsRate === null
               ? 'Not measured'
-              : `${firstPassRate}%`}
+              : `${firstScanWithoutFindingsRate}%`}
             <span className="text-xs font-semibold text-[#60A5FA] flex items-center font-sans">
               <CheckCircle2 className="w-3.5 h-3.5 mr-0.5" />
-              {firstPassRate === null
+              {firstScanWithoutFindingsRate === null
                 ? 'No scanned drafts'
-                : firstPassTarget === null
-                  ? 'Measured'
-                  : firstPassRate >= firstPassTarget ? 'On target' : 'Below target'}
+                : 'Observed'}
             </span>
           </div>
-          {firstPassRate !== null && (
+          {firstScanWithoutFindingsRate !== null && (
             <div className="w-full bg-[#0A0F1E] h-1.5 rounded-full overflow-hidden border border-[#1F2A4A]/60">
               <div
                 className="bg-gradient-to-r from-[#2563EB] to-[#60A5FA] h-full rounded-full transition-all duration-700"
-                style={{ width: `${Math.max(0, Math.min(100, firstPassRate))}%` }}
+                style={{ width: `${Math.max(0, Math.min(100, firstScanWithoutFindingsRate))}%` }}
               />
             </div>
           )}
           <p className="text-[11px] text-[#7C88AB] leading-relaxed">
-            Drafts meeting brand standards upon initial submission without revision cycles.
+            Share of initial scans with complete policy coverage and no automated findings; not a compliance determination.
           </p>
         </div>
 
@@ -364,19 +331,19 @@ export default function AnalyticsDashboard() {
         </div>
       </div>
 
-      {/* Main Compliance Trend Chart */}
+      {/* Daily Scan Findings Chart */}
       <div className="bg-[#111830] border border-[#1F2A4A] rounded-2xl p-5 sm:p-6 space-y-4 shadow-xl">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#1F2A4A] pb-3.5">
           <div className="flex items-center space-x-2.5">
             <Activity className="w-4 h-4 text-[#4F6BED]" />
             <h3 className="text-sm font-bold text-[#E8ECF8] uppercase tracking-wider">
-              Compliance Trajectory Over Time
+              Daily Scan Findings
             </h3>
           </div>
           <div className="flex items-center space-x-3 text-xs text-[#7C88AB]">
             <span className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-full bg-[#60A5FA]" />
-              Measured Average
+              Findings
             </span>
           </div>
         </div>
@@ -396,8 +363,8 @@ export default function AnalyticsDashboard() {
                 </defs>
 
                 {/* Horizontal reference gridlines */}
-                {[100, 75, 50, 25, 0].map(val => {
-                  const y = paddingY + plotHeight - (val / 100) * plotHeight;
+                {[maxDailyFindings, Math.ceil(maxDailyFindings / 2), 0].filter((val, index, values) => values.indexOf(val) === index).map(val => {
+                  const y = paddingY + plotHeight - (val / maxDailyFindings) * plotHeight;
                   return (
                     <g key={val}>
                       <line
@@ -417,7 +384,7 @@ export default function AnalyticsDashboard() {
                         fontSize="9"
                         fontFamily="monospace"
                       >
-                        {val}%
+                        {val}
                       </text>
                     </g>
                   );
@@ -463,7 +430,7 @@ export default function AnalyticsDashboard() {
                   Date: <span className="text-[#E8ECF8] font-bold">{points[hoveredTrendIndex].date}</span>
                 </span>
                 <span className="font-mono text-[#34D399] font-bold">
-                  Compliance: {points[hoveredTrendIndex].score}%
+                  Findings: {points[hoveredTrendIndex].flags}
                 </span>
                 <span className="font-mono text-[#7C88AB]">
                   Activity: {points[hoveredTrendIndex].scans} scans • {points[hoveredTrendIndex].flags} flags
@@ -486,7 +453,7 @@ export default function AnalyticsDashboard() {
             <p className="text-[11px]">
               {points.length === 1
                 ? 'Trend lines will appear after scans are recorded on additional dates.'
-                : 'Compliance trends will appear after valid scan data is recorded.'}
+                : 'Scan activity trends will appear after scans are recorded.'}
             </p>
           </div>
         )}

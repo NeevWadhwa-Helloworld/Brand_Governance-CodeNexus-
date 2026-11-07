@@ -80,14 +80,11 @@ export default function BenchmarkSuite() {
               <TestTube2 className="w-4 h-4" />
             </div>
             <h2 className="text-base sm:text-lg font-bold text-[#E8ECF8]">
-              Round 3 Success Metrics Benchmark Suite
+              Evaluation benchmarks
             </h2>
-            <span className="text-[11px] bg-[#4F6BED]/10 text-[#60A5FA] border border-[#4F6BED]/20 px-2.5 py-0.5 rounded-full font-mono font-medium">
-              Section 9.1 Verification
-            </span>
           </div>
           <p className="text-xs text-[#7C88AB] mt-1 ml-10.5">
-            Validating the intelligent brand-governance platform on labelled test drafts against all target success criteria.
+            Run labeled test samples and review their measured results.
           </p>
         </div>
 
@@ -109,7 +106,7 @@ export default function BenchmarkSuite() {
             ) : (
               <Play className="w-3.5 h-3.5 fill-current" />
             )}
-            <span>{running ? 'Executing Labelled Benchmark...' : 'Execute Labelled Benchmark'}</span>
+            <span>{running ? 'Running benchmark...' : 'Run benchmark'}</span>
           </button>
         </div>
       </div>
@@ -142,7 +139,7 @@ export default function BenchmarkSuite() {
         </div>
       ) : report ? (
         <div className="space-y-6">
-          {/* Target Success Metrics Cards (from Section 9.1 Table) */}
+          {/* Measured benchmark metrics */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {report.metrics_summary.map((m, idx) => {
               const metricTitle = m.metric.split('(')[0].trim();

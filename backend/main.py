@@ -91,7 +91,7 @@ def system_info():
         },
         "security": {
             "pii_redaction_enabled": settings.ENABLE_PII_REDACTION,
-            "immutable_audit_logging": True
+            "audit_hashing_enabled": True
         }
     }
 

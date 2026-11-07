@@ -1,7 +1,7 @@
 import React from 'react';
 import {
   ShieldCheck, FileText, CheckCircle, Brain, BarChart3,
-  TestTube2, Lock, Users, Sparkles, LogOut, Sun, Moon
+  TestTube2, Lock, Users, LogOut, Sun, Moon
 } from 'lucide-react';
 
 const ROLE_TABS = {
@@ -20,13 +20,13 @@ export default function Navbar({
   toggleTheme
 }) {
   const allTabs = [
-    { id: 'studio', label: 'Draft Studio & Scanner', icon: FileText },
-    { id: 'approvals', label: 'Approval Queue', icon: CheckCircle, badge: pendingCount },
-    { id: 'brain', label: 'Source of Truth Brain', icon: Brain },
-    { id: 'analytics', label: 'Governance Analytics', icon: BarChart3 },
-    { id: 'evaluation', label: 'Benchmark Suite (Sec 9.1)', icon: TestTube2 },
-    { id: 'audit', label: 'Audit & Security', icon: Lock },
-    { id: 'users', label: 'Team Accounts', icon: Users },
+    { id: 'studio', label: 'Drafts', icon: FileText },
+    { id: 'approvals', label: 'Approvals', icon: CheckCircle, badge: pendingCount },
+    { id: 'brain', label: 'Guidelines', icon: Brain },
+    { id: 'analytics', label: 'Analytics', icon: BarChart3 },
+    { id: 'evaluation', label: 'Benchmarks', icon: TestTube2 },
+    { id: 'audit', label: 'Audit log', icon: Lock },
+    { id: 'users', label: 'Users', icon: Users },
   ];
 
   const allowedTabs = currentUser
@@ -56,26 +56,18 @@ export default function Navbar({
 
   return (
     <header className="border-b border-border bg-canvas/95 backdrop-blur-md sticky top-0 z-40 transition-colors">
-      {/* Top Banner / Identity & Persona Bar */}
+      {/* Workspace identity and user actions */}
       <div className="w-full max-w-7xl xl:max-w-[1400px] mx-auto px-3 sm:px-6 py-2.5 flex items-center justify-between border-b border-border/60 text-xs">
-        {/* Brand & Engine Identity */}
+      {/* Brand */}
         <div className="flex items-center space-x-2.5 sm:space-x-3 text-text-secondary">
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 rounded-lg bg-primary/15 border border-primary/30 flex items-center justify-center text-primary shrink-0 shadow-sm shadow-primary/20">
               <ShieldCheck className="w-4 h-4" />
             </div>
             <div>
-              <span className="font-bold text-xs tracking-tight text-text-primary">Inkloom AI</span>
-              <span className="text-[10px] text-text-muted font-mono ml-1.5 hidden sm:inline">Governance Engine</span>
+              <span className="font-bold text-xs tracking-tight text-text-primary">Inkloom</span>
             </div>
           </div>
-          <span className="text-border-strong hidden md:inline">|</span>
-          <span className="hidden md:inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-mono bg-surface border border-border text-primary font-medium">
-            <Sparkles className="w-2.5 h-2.5" /> Grounded RAG
-          </span>
-          <span className="hidden lg:inline text-[11px] text-text-muted">
-            Team DoraAIemon
-          </span>
         </div>
 
         {/* Persona & Actions: Theme Toggle, User Indicator & Sign Out */}

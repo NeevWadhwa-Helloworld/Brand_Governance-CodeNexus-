@@ -134,7 +134,6 @@ class RevisionItem(BaseModel):
     version_num: int
     content_text: Optional[str] = None
     image_path: Optional[str] = None
-    compliance_score: float = 0.0
     policy_coverage_status: Literal['covered', 'needs_review'] = 'covered'
     policy_coverage_reason: Optional[str] = None
     media_analysis: Optional[dict] = None
@@ -180,7 +179,6 @@ class ScanResponse(BaseModel):
     draft_id: str
     revision_id: str
     version_num: int
-    compliance_score: float
     flags_count: int
     flags: List[FlagItem]
     scan_duration_ms: float

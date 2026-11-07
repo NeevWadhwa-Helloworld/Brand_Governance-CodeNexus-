@@ -1,14 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../api';
 import {
-  Lock, ShieldCheck, EyeOff, Server, Clock, Download,
-  RefreshCw, Search, X, ChevronRight, Hash,
+  Clock, Download, RefreshCw, Search, X, ChevronRight, Hash,
   Shield, AlertTriangle, ArrowUpDown
 } from 'lucide-react';
 
 export default function AuditSecurity({ currentUser }) {
   const [logs, setLogs] = useState([]);
-  const [systemInfo, setSystemInfo] = useState(null);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -26,12 +24,8 @@ export default function AuditSecurity({ currentUser }) {
     setLoading(true);
     setError(null);
     try {
-      const [lData, sData] = await Promise.all([
-        api.getAuditLogs(100, currentUser?.id),
-        api.getSystemInfo()
-      ]);
+      const lData = await api.getAuditLogs(100, currentUser?.id);
       setLogs(lData || []);
-      setSystemInfo(sData || null);
     } catch (e) {
       console.error(e);
       setError(e.message || 'Failed to load audit logs.');
@@ -44,12 +38,8 @@ export default function AuditSecurity({ currentUser }) {
     setRefreshing(true);
     setError(null);
     try {
-      const [lData, sData] = await Promise.all([
-        api.getAuditLogs(100, currentUser?.id),
-        api.getSystemInfo()
-      ]);
+      const lData = await api.getAuditLogs(100, currentUser?.id);
       setLogs(lData || []);
-      setSystemInfo(sData || null);
     } catch (e) {
       console.error(e);
       setError(e.message || 'Failed to refresh audit trail.');
@@ -152,14 +142,14 @@ export default function AuditSecurity({ currentUser }) {
         <div>
           <div className="flex items-center space-x-2.5">
             <div className="w-8 h-8 rounded-xl bg-[#36D6A0]/15 border border-[#36D6A0]/30 flex items-center justify-center text-[#36D6A0]">
-              <Lock className="w-4 h-4" />
+              <Clock className="w-4 h-4" />
             </div>
             <h2 className="text-base sm:text-lg font-bold text-[#E8ECF8]">
-              Security & Immutable Audit Trail
+              Audit log
             </h2>
           </div>
           <p className="text-xs text-[#7C88AB] mt-1 ml-10.5">
-            Section 6.2 Security and Privacy: Data isolation, PII sanitization, and cryptographic tamper-proof governance audit logs.
+            Review and export recent activity for this workspace.
           </p>
         </div>
 
@@ -169,7 +159,7 @@ export default function AuditSecurity({ currentUser }) {
             onClick={handleExport}
             disabled={exporting}
             className="text-xs bg-[#0E1428] hover:bg-[#172040] text-[#AAB4D0] hover:text-[#E8ECF8] border border-[#1F2A4A] px-3.5 py-1.5 rounded-xl flex items-center space-x-1.5 transition-all shadow-sm disabled:opacity-60"
-            title="Download the most recent audit logs in CSV format"
+            title="Download up to the 500 most recent audit events as CSV"
           >
             <Download className="w-3.5 h-3.5 text-[#36D6A0]" />
             <span>{exporting ? 'Exporting CSV...' : 'Export CSV'}</span>
@@ -182,95 +172,26 @@ export default function AuditSecurity({ currentUser }) {
             className="text-xs bg-[#172040] hover:bg-[#1F2A4A] text-[#E8ECF8] border border-[#1F2A4A] px-3.5 py-1.5 rounded-xl flex items-center space-x-1.5 transition-all shadow-sm font-semibold"
           >
             <RefreshCw className={`w-3.5 h-3.5 text-[#36D6A0] ${refreshing ? 'animate-spin' : ''}`} />
-            <span>{refreshing ? 'Refreshing...' : 'Refresh Logs'}</span>
+            <span>{refreshing ? 'Refreshing...' : 'Refresh'}</span>
           </button>
         </div>
       </div>
 
-      {/* Security Architecture & System Info Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* Tenant Isolation Card */}
-        <div className="bg-[#111830] border border-[#1F2A4A] rounded-2xl p-4 sm:p-5 space-y-2.5 shadow-xl hover:border-[#34D399]/40 transition-colors">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2 text-xs font-bold text-[#34D399] uppercase tracking-wide">
-              <ShieldCheck className="w-4 h-4" />
-              <span>Strict Tenant Isolation</span>
-            </div>
-            <span className="text-[10px] uppercase font-mono font-bold px-2 py-0.5 rounded-full bg-[#34D399]/10 text-[#34D399] border border-[#34D399]/20">
-              Enforced
-            </span>
-          </div>
-          <p className="text-xs text-[#AAB4D0] leading-relaxed">
-            Per-tenant data isolation strictly enforced across draft records, revisions, RAG rule vectors, and API routes.
-          </p>
-          <div className="pt-1 border-t border-[#1F2A4A]/60 flex items-center justify-between text-[10px] font-mono text-[#7C88AB]">
-            <span>Active Tenant: <strong className="text-[#E8ECF8]">{currentUser?.org_id || 'Not reported'}</strong></span>
-            <span>DB: <strong className="text-[#60A5FA]">{systemInfo?.database ? (systemInfo.database.includes('postgresql') ? 'Postgres' : 'SQLite WAL') : 'Not reported'}</strong></span>
-          </div>
-        </div>
-
-        {/* PII Redaction Card */}
-        <div className="bg-[#111830] border border-[#1F2A4A] rounded-2xl p-4 sm:p-5 space-y-2.5 shadow-xl hover:border-[#60A5FA]/40 transition-colors">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2 text-xs font-bold text-[#60A5FA] uppercase tracking-wide">
-              <EyeOff className="w-4 h-4" />
-              <span>PII Sanitization Engine</span>
-            </div>
-            <span className="text-[10px] uppercase font-mono font-bold px-2 py-0.5 rounded-full bg-[#60A5FA]/10 text-[#60A5FA] border border-[#60A5FA]/20">
-              {systemInfo?.security?.pii_redaction_enabled === true
-                ? 'Active'
-                : systemInfo?.security?.pii_redaction_enabled === false ? 'Disabled' : 'Not reported'}
-            </span>
-          </div>
-          <p className="text-xs text-[#AAB4D0] leading-relaxed">
-            Automated redaction of sensitive entities, email addresses, and personal identifiers prior to external model evaluations.
-          </p>
-          <div className="pt-1 border-t border-[#1F2A4A]/60 flex items-center justify-between text-[10px] font-mono text-[#7C88AB]">
-            <span>Redaction: <strong className="text-[#34D399]">
-              {systemInfo?.security?.pii_redaction_enabled === true
-                ? 'Automated'
-                : systemInfo?.security?.pii_redaction_enabled === false ? 'Disabled' : 'Not reported'}
-            </strong></span>
-            <span>Scope: <strong className="text-[#AAB4D0]">Pre-Inference</strong></span>
-          </div>
-        </div>
-
-        {/* Grounded RAG Policy Guard Card */}
-        <div className="bg-[#111830] border border-[#1F2A4A] rounded-2xl p-4 sm:p-5 space-y-2.5 shadow-xl hover:border-[#A78BFA]/40 transition-colors">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2 text-xs font-bold text-[#A78BFA] uppercase tracking-wide">
-              <Server className="w-4 h-4" />
-              <span>Grounded Policy Guard</span>
-            </div>
-            <span className="text-[10px] uppercase font-mono font-bold px-2 py-0.5 rounded-full bg-[#A78BFA]/10 text-[#A78BFA] border border-[#A78BFA]/20">
-              Strict
-            </span>
-          </div>
-          <p className="text-xs text-[#AAB4D0] leading-relaxed">
-            Context window is strictly bounded to retrieved numbered rules; hallucinated or ungrounded flags are automatically discarded.
-          </p>
-          <div className="pt-1 border-t border-[#1F2A4A]/60 flex items-center justify-between text-[10px] font-mono text-[#7C88AB]">
-            <span>Model: <strong className="text-[#E8ECF8]">{systemInfo?.ai_engine?.model || 'Not reported'}</strong></span>
-            <span>Min Confidence: <strong className="text-[#34D399]">{Number.isFinite(systemInfo?.ai_engine?.min_confidence) ? `${Math.round(systemInfo.ai_engine.min_confidence * 100)}%` : 'Not reported'}</strong></span>
-          </div>
-        </div>
-      </div>
-
-      {/* Immutable Audit Log Table Section */}
+      {/* Audit log */}
       <div className="bg-[#111830] border border-[#1F2A4A] rounded-2xl p-5 sm:p-6 space-y-4 shadow-xl">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#1F2A4A] pb-3.5">
           <div className="flex items-center space-x-2.5">
             <Clock className="w-4 h-4 text-[#4F6BED]" />
             <h3 className="text-sm font-bold text-[#E8ECF8] uppercase tracking-wider">
-              Immutable Governance Audit Events
+              Recent events
             </h3>
             <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-[#172040] text-[#AAB4D0] border border-[#1F2A4A]">
-              {filteredLogs.length} matching in {logs.length} loaded recent entries
+              {filteredLogs.length} matching · {logs.length} recent events loaded (up to 100)
             </span>
           </div>
           <span className="text-[11px] font-mono text-[#7C88AB] flex items-center gap-1.5">
             <Hash className="w-3.5 h-3.5 text-[#34D399]" />
-            Cryptographic SHA-256 Chain
+            SHA-256 event hashes recorded
           </span>
         </div>
 
@@ -341,7 +262,7 @@ export default function AuditSecurity({ currentUser }) {
               {loading && logs.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="p-8 text-center text-xs text-[#7C88AB] animate-pulse">
-                    Loading cryptographic audit events...
+                    Loading audit events...
                   </td>
                 </tr>
               ) : filteredLogs.length === 0 ? (
@@ -406,7 +327,7 @@ export default function AuditSecurity({ currentUser }) {
                             setSelectedLog(log);
                           }}
                           className="text-[#7C88AB] group-hover:text-[#60A5FA] p-1 rounded transition-colors"
-                          title="Inspect detailed event payload and verification hash"
+                          title="Inspect event details and recorded hashes"
                         >
                           <ChevronRight className="w-4 h-4" />
                         </button>
@@ -486,12 +407,15 @@ export default function AuditSecurity({ currentUser }) {
                 </div>
               </div>
 
-              {/* Cryptographic Hash Verification */}
+              {/* Stored hash values */}
               <div className="bg-[#0E1428] border border-[#1F2A4A] rounded-xl p-3.5 space-y-2">
                 <span className="text-[#7C88AB] block text-[10px] uppercase font-semibold flex items-center gap-1.5">
                   <Hash className="w-3.5 h-3.5 text-[#34D399]" />
-                  Cryptographic Integrity Hashes
+                  Recorded event hashes
                 </span>
+                <p className="text-[10px] leading-relaxed text-[#7C88AB]">
+                  Hash values are shown for reference; this view does not independently verify the full chain.
+                </p>
                 <div className="space-y-1 font-mono text-[11px]">
                   <div className="flex justify-between">
                     <span className="text-[#7C88AB]">Entry Hash:</span>
