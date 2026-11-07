@@ -1,10 +1,13 @@
 import json
+import logging
 import re
 from typing import List, Dict, Any, Optional
 from backend.config import settings
 from backend.services.rag_service import RAGService
 from backend.services.pii_redactor import PIIRedactor
 from backend.schemas import SemanticFlagItem, SemanticScanOutput
+
+logger = logging.getLogger(__name__)
 
 class SemanticEngine:
     """
@@ -21,7 +24,7 @@ class SemanticEngine:
         if not retrieved_rules:
             return []
 
-        retrieved_rule_ids = {r['rule_id'] for r in retrieved_rules}
+        retrieved_rules_by_id = {r['rule_id'].strip().upper(): r for r in retrieved_rules}
 
         # 2. Redact personal data if enabled
         clean_text, pii_mapping = PIIRedactor.redact(text) if text else ("", {})
@@ -34,8 +37,8 @@ class SemanticEngine:
             if has_api_key:
                 try:
                     raw_flags.extend(cls._call_gemini_rag(clean_text, retrieved_rules))
-                except Exception as e:
-                    print(f"[SemanticEngine] Gemini text call failed, using local parser: {e}")
+                except Exception:
+                    logger.exception("Gemini text scan failed; using local semantic checks")
                     raw_flags.extend(cls._local_semantic_rules_eval(clean_text, retrieved_rules))
             else:
                 raw_flags.extend(cls._local_semantic_rules_eval(clean_text, retrieved_rules))
@@ -45,8 +48,8 @@ class SemanticEngine:
             if has_api_key:
                 try:
                     raw_flags.extend(cls._call_gemini_vision(image_path, retrieved_rules))
-                except Exception as e:
-                    print(f"[SemanticEngine] Gemini vision call failed, using local visual parser: {e}")
+                except Exception:
+                    logger.exception("Gemini visual scan failed; using local visual checks")
                     raw_flags.extend(cls._local_visual_semantic_eval(image_path, retrieved_rules))
             else:
                 raw_flags.extend(cls._local_visual_semantic_eval(image_path, retrieved_rules))
@@ -54,10 +57,10 @@ class SemanticEngine:
         # 4. Strict Grounding Filter: Discard any flag that cannot cite a valid retrieved rule!
         grounded_flags = []
         for flag in raw_flags:
-            rule_id = flag.get("rule_id", "").strip().upper()
-            if rule_id not in retrieved_rule_ids:
+            rule_id = str(flag.get("rule_id", "")).strip().upper()
+            if rule_id not in retrieved_rules_by_id:
                 # Rule was not retrieved or is hallucinated -> Discard as per Section 3.1 & 8
-                print(f"[SemanticEngine] Discarding ungrounded flag citing non-retrieved rule: {rule_id}")
+                logger.warning("Discarding ungrounded flag citing non-retrieved rule %s", rule_id)
                 continue
 
             # Restore any redacted PII tokens in span and fix
@@ -65,6 +68,12 @@ class SemanticEngine:
             fix = PIIRedactor.restore(flag.get("suggested_fix") or flag.get("fix", ""), pii_mapping)
             explanation = flag.get("explanation", "")
             confidence = float(flag.get("confidence", 0.88))
+            if not span.strip() or not explanation.strip() or not fix.strip():
+                logger.warning("Discarding incomplete semantic flag for rule %s", rule_id)
+                continue
+            if clean_text and span not in text:
+                logger.warning("Discarding semantic flag with a non-exact quoted span for rule %s", rule_id)
+                continue
 
             # Find span indices in original text
             start_idx = -1
@@ -74,7 +83,7 @@ class SemanticEngine:
                 end_idx = start_idx + len(span)
 
             # Match category from rule
-            rule_info = next((r for r in retrieved_rules if r['rule_id'] == rule_id), {})
+            rule_info = retrieved_rules_by_id[rule_id]
             category = rule_info.get('category', 'tone')
 
             grounded_flags.append({
@@ -129,9 +138,30 @@ CRITICAL RULES:
             ),
         )
 
-        parsed = json.loads(response.text)
-        flags_data = parsed.get("flags", [])
-        return flags_data
+        return cls._parse_gemini_response(response)
+
+    @staticmethod
+    def _parse_gemini_response(response: Any) -> List[Dict[str, Any]]:
+        parsed = getattr(response, "parsed", None)
+        if parsed is None:
+            response_text = getattr(response, "text", None)
+            if not response_text:
+                raise ValueError("Gemini returned no structured scan output")
+            parsed = json.loads(response_text)
+        elif not isinstance(parsed, dict):
+            if hasattr(parsed, "model_dump"):
+                parsed = parsed.model_dump()
+            elif hasattr(parsed, "dict"):
+                parsed = parsed.dict()
+            else:
+                raise ValueError("Gemini returned an unsupported structured response")
+
+        validated = SemanticScanOutput.model_validate(parsed)
+        flags = [flag.model_dump() for flag in validated.flags]
+        for flag in flags:
+            if not 0.0 <= flag["confidence"] <= 1.0:
+                raise ValueError("Gemini returned a confidence value outside [0, 1]")
+        return flags
 
     @classmethod
     def _call_gemini_vision(cls, image_path: str, retrieved_rules: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -171,8 +201,7 @@ RULES:
             ),
         )
 
-        parsed = json.loads(response.text)
-        return parsed.get("flags", [])
+        return cls._parse_gemini_response(response)
 
     @classmethod
     def _local_visual_semantic_eval(cls, image_path: str, retrieved_rules: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

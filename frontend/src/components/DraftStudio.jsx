@@ -293,7 +293,7 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
   const flags = latestRev?.flags || [];
   const pendingFlags = flags.filter(f => f.resolution === 'pending');
   const resolvedFlags = flags.filter(f => f.resolution !== 'pending');
-  const complianceScore = latestRev?.compliance_score ?? 100;
+  const complianceScore = latestRev?.compliance_score ?? null;
   const needsPolicyReview = latestRev?.policy_coverage_status === 'needs_review';
   const latestThreadDecision = comments.slice().reverse().find(
     comment => ['changes_requested', 'resubmitted', 'approved'].includes(comment.decision)
@@ -828,31 +828,43 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
               <div className="bg-[#0E1428] border border-[#1F2A4A] rounded-xl p-3.5 flex items-center justify-between">
                 <div className="flex items-center space-x-3.5">
                   <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-sm border-2 shrink-0 ${
+                    !latestRev ? 'border-[#7C88AB] bg-[#7C88AB]/10 text-[#AAB4D0]' :
                     complianceScore >= 80 ? 'border-[#34D399] bg-[#34D399]/10 text-[#34D399]' :
                     complianceScore >= 50 ? 'border-[#FBBF24] bg-[#FBBF24]/10 text-[#FBBF24]' :
                     'border-[#F87171] bg-[#F87171]/10 text-[#F87171]'
                   }`}>
-                    {needsPolicyReview ? '—' : `${complianceScore}%`}
+                    {!latestRev ? '—' : `${complianceScore}%`}
                   </div>
                   <div>
                     <div className="text-xs font-bold text-[#E8ECF8]">
-                      {needsPolicyReview
+                      {!latestRev
+                        ? 'Scan not run'
+                        : needsPolicyReview
                         ? 'Human review required'
                         : complianceScore >= 80 ? 'High Brand Alignment' : 'Off-Brand Violations Detected'}
                     </div>
                     <div className="text-[11px] text-[#AAB4D0] mt-0.5">
-                      {needsPolicyReview
+                      {!latestRev
+                        ? 'Run a scan to calculate alignment and show policy-grounded recommendations.'
+                        : needsPolicyReview
                         ? 'Automated checks could not fully verify this asset.'
                         : pendingFlags.length === 0
-                        ? 'All brand checks passed. Ready for approval!'
+                        ? 'No issues were found by automated checks.'
                         : `${pendingFlags.length} pending issue(s) require creator resolution`}
                     </div>
                   </div>
                 </div>
-                <div className="text-right text-[11px] text-[#7C88AB] font-mono shrink-0">
-                  <span className="inline-block w-2 h-2 rounded-full bg-[#34D399] mr-1.5 animate-pulse"></span>
-                  Two-Layer Active
-                </div>
+                {latestRev && (
+                  <div className="shrink-0 text-right">
+                    <div className="text-right text-[11px] text-[#7C88AB] font-mono">
+                      <span className="inline-block w-2 h-2 rounded-full bg-[#34D399] mr-1.5 animate-pulse"></span>
+                      Automated Checks
+                    </div>
+                    {needsPolicyReview && (
+                      <div className="mt-1 text-[10px] text-[#FBBF24]">Provisional score</div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {needsPolicyReview && (
@@ -1146,14 +1158,29 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
 
         {/* Pending Flag Cards List */}
         <div className="space-y-3 max-h-[750px] overflow-y-auto pr-1">
-          {pendingFlags.length === 0 ? (
+          {!latestRev ? (
+            <div className="bg-[#111830] border border-[#1F2A4A] rounded-2xl p-6 text-center space-y-2.5">
+              <h4 className="text-sm font-bold text-[#E8ECF8]">No scan results yet</h4>
+              <p className="text-xs text-[#AAB4D0] leading-relaxed max-w-xs mx-auto">
+                Run a scan to check this draft against the active brand policies. No alignment score or recommendations are available until then.
+              </p>
+            </div>
+          ) : pendingFlags.length === 0 ? (
             <div className="bg-[#34D399]/10 border border-[#34D399]/30 rounded-2xl p-6 text-center space-y-2.5">
               <div className="w-12 h-12 rounded-full bg-[#34D399]/20 border border-[#34D399]/40 flex items-center justify-center text-[#34D399] mx-auto shadow-md shadow-[#34D399]/10">
                 <CheckCircle2 className="w-6 h-6" />
               </div>
-              <h4 className="text-sm font-bold text-[#34D399]">100% Brand Compliant</h4>
+              <h4 className="text-sm font-bold text-[#34D399]">
+                {needsPolicyReview
+                  ? 'No issues found in available checks'
+                  : flags.length > 0 ? 'All flagged issues resolved' : 'No issues found'}
+              </h4>
               <p className="text-xs text-[#AAB4D0] leading-relaxed max-w-xs mx-auto">
-                All automated brand checks passed. No tone breaches, terminology violations, outdated facts, or palette errors detected.
+                {needsPolicyReview
+                  ? 'Automated checks found no violations in the available policy coverage. Human review is still required.'
+                  : flags.length > 0
+                  ? 'There are no pending recommendations. The scan findings were resolved.'
+                  : 'No tone, terminology, claim, or visual-policy findings were returned by the automated checks.'}
               </p>
             </div>
           ) : displayedPendingFlags.length === 0 ? (

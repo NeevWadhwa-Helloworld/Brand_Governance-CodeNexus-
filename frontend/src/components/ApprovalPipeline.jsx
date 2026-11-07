@@ -189,7 +189,7 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
       draft_title: currentDraft.title,
       author: currentDraft.author_name || "Creator",
       current_status: currentDraft.status,
-      compliance_score: `${latestRev?.compliance_score ?? 100}%`,
+      compliance_score: latestRev ? `${latestRev.compliance_score}%` : 'Not scanned',
       guideline_version_used: `Inkloom Master Guidelines ${activeGuidelineVersion} (Active)`,
       sign_off_status: signOffRecord
         ? "Signed"
@@ -863,7 +863,9 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
                 <div>
                   <span className="text-[#7C88AB] block text-[10px] uppercase font-semibold">Compliance Alignment</span>
                   <span className="text-[#34D399] font-bold font-mono">
-                    {currentDraft.latest_revision?.compliance_score ?? 100}% Alignment
+                    {currentDraft.latest_revision
+                      ? `${currentDraft.latest_revision.compliance_score}% Alignment`
+                      : 'Not scanned'}
                   </span>
                 </div>
                 <div>

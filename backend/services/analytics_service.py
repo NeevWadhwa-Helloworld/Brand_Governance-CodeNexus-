@@ -97,14 +97,6 @@ class AnalyticsService:
                         "reason": f"High creator dismissal rate on '{item['term']}'. Consider refining guideline clause {item['rule_id']} with situational context.",
                         "action": "Clarify Guideline"
                     })
-            if not recommendations:
-                recommendations.append({
-                    "rule_id": "CLAIM-01",
-                    "term": "#1 solution",
-                    "reason": "Creators frequently seek to use competitive superlatives. Recommend publishing a pre-approved proof point cheat-sheet.",
-                    "action": "Publish Proof Sheet"
-                })
-
             # 7. Daily compliance & activity time-series trends
             cursor.execute("""
                 SELECT substr(r.created_at, 1, 10) as scan_date,
