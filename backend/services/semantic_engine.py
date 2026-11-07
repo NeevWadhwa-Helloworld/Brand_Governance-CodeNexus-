@@ -39,9 +39,9 @@ class SemanticEngine:
                     raw_flags.extend(cls._call_gemini_rag(clean_text, retrieved_rules))
                 except Exception:
                     logger.exception("Gemini text scan failed; using local semantic checks")
-                    raw_flags.extend(cls._local_semantic_rules_eval(clean_text, retrieved_rules))
-            else:
-                raw_flags.extend(cls._local_semantic_rules_eval(clean_text, retrieved_rules))
+            # Keep high-confidence, policy-specific checks active even when Gemini
+            # returns an empty list; a successful API call is not proof of compliance.
+            raw_flags.extend(cls._local_semantic_rules_eval(clean_text, retrieved_rules))
 
         # 4. Multimodal Layer 2: Visual analysis if image is provided
         if image_path:
@@ -56,6 +56,7 @@ class SemanticEngine:
 
         # 4. Strict Grounding Filter: Discard any flag that cannot cite a valid retrieved rule!
         grounded_flags = []
+        seen_flags = set()
         for flag in raw_flags:
             rule_id = str(flag.get("rule_id", "")).strip().upper()
             if rule_id not in retrieved_rules_by_id:
@@ -74,6 +75,10 @@ class SemanticEngine:
             if clean_text and span not in text:
                 logger.warning("Discarding semantic flag with a non-exact quoted span for rule %s", rule_id)
                 continue
+            dedupe_key = (rule_id, span.casefold().strip())
+            if dedupe_key in seen_flags:
+                continue
+            seen_flags.add(dedupe_key)
 
             # Find span indices in original text
             start_idx = -1
@@ -120,12 +125,20 @@ ONLY cite Rule IDs from this verified retrieved list:
 {rules_prompt_block}
 
 CRITICAL RULES:
-1. ONLY produce a flag if a draft explicitly breaches one of the provided Rule IDs.
-2. Every flag MUST specify the exact rule_id, the exact quoted_span from the draft, a clear friendly explanation of why it violates that rule, and a non-destructive suggested_fix.
-3. DO NOT invent or hallucinate Rule IDs. If no rule is breached, return an empty list of flags.
+1. Assess the complete draft against each applicable retrieved rule, including tone and voice requirements. Treat clearly self-deprecating, hostile, arrogant, or condescending wording as a violation when it conflicts with the cited rule.
+2. Do not require a phrase to exactly match an example in a rule; evaluate its meaning in context, while avoiding subjective flags that cannot be tied to a stated requirement.
+3. Every flag MUST specify the exact rule_id, an exact quoted_span copied from the draft, a clear friendly explanation of the conflict with that rule, and a specific non-destructive suggested_fix.
+4. DO NOT invent or hallucinate Rule IDs. If no rule is breached, return an empty list of flags.
 """
 
-        prompt = f"Evaluate the following draft content against the brand rules:\n\n{text}"
+        prompt = f"""
+Review this complete draft for policy violations. Be especially attentive to wording
+that undermines the brand's required voice, even if it is not one of the examples
+in the rules. Return a grounded finding and useful rewrite when a clear conflict exists.
+
+Draft:
+{text}
+"""
 
         response = client.models.generate_content(
             model=settings.GEMINI_MODEL,
@@ -263,6 +276,21 @@ RULES:
                         "explanation": exp,
                         "suggested_fix": fix,
                         "confidence": 0.91
+                    })
+
+            self_deprecating_patterns = [
+                (r"\b(?:we(?:'re|\s+are)|our\s+(?:team|work|product|service|company)\s+(?:is|are)|i(?:'m|\s+am))\s+(?:(?:very|really|so)\s+)?(?:bad|terrible|awful|incompetent|useless)(?:\s+(?:at|in)\s+[\w\s'-]{1,50})?",
+                 "Self-deprecating wording conflicts with VOICE-01's confident, empowering, helpful tone.",
+                 "We are committed to delivering thoughtful, dependable work that helps our customers succeed."),
+            ]
+            for pattern, explanation, fix in self_deprecating_patterns:
+                for match in re.finditer(pattern, text, re.IGNORECASE):
+                    flags.append({
+                        "rule_id": "VOICE-01",
+                        "quoted_span": match.group(0),
+                        "explanation": explanation,
+                        "suggested_fix": fix,
+                        "confidence": 0.88,
                     })
 
         if "VOICE-02" in retrieved_ids:

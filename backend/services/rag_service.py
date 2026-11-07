@@ -78,7 +78,14 @@ class RAGService:
                         """, (org_id, EmbeddingService.to_vector_literal(query_embedding), top_k))
                         vector_rules = cursor.fetchall()
                         if vector_rules:
-                            return vector_rules
+                            lexical_rules = cls._lexical_retrieve(rules, text, top_k)
+                            retrieved = {rule["rule_id"]: rule for rule in vector_rules}
+                            retrieved.update(
+                                (rule["rule_id"], rule)
+                                for rule in lexical_rules
+                                if rule["rule_id"] not in retrieved
+                            )
+                            return list(retrieved.values())
                 except Exception:
                     logger.exception("Vector policy retrieval failed; using lexical retrieval")
             else:
@@ -96,7 +103,17 @@ class RAGService:
                         continue
                 if vector_rules:
                     vector_rules.sort(key=lambda item: item[0], reverse=True)
-                    return [rule for _, rule in vector_rules[:top_k]]
+                    lexical_rules = cls._lexical_retrieve(rules, text, top_k)
+                    retrieved = {
+                        rule["rule_id"]: rule
+                        for rule in (item[1] for item in vector_rules[:top_k])
+                    }
+                    retrieved.update(
+                        (rule["rule_id"], rule)
+                        for rule in lexical_rules
+                        if rule["rule_id"] not in retrieved
+                    )
+                    return list(retrieved.values())
 
         return cls._lexical_retrieve(rules, text, top_k)
 

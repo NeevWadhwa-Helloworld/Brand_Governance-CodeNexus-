@@ -7,6 +7,7 @@ from unittest.mock import patch
 from backend.services.analytics_service import AnalyticsService
 from backend.services.evaluation_service import EvaluationService
 from backend.services.semantic_engine import SemanticEngine
+from backend.services.rag_service import RAGService
 
 
 class EvaluationTimestampTests(unittest.TestCase):
@@ -69,6 +70,91 @@ class EvaluationTimestampTests(unittest.TestCase):
 
 
 class SemanticEngineResponseTests(unittest.TestCase):
+    def test_self_deprecating_text_gets_grounded_voice_finding(self):
+        rules = [{
+            "rule_id": "VOICE-01",
+            "category": "tone",
+            "title": "Empowering & Confident Tone",
+            "text": "Maintain a confident, empowering, and helpful tone.",
+            "details": "",
+        }]
+
+        flags = SemanticEngine._local_semantic_rules_eval(
+            "we are very bad at our work", rules
+        )
+
+        self.assertEqual(len(flags), 1)
+        self.assertEqual(flags[0]["rule_id"], "VOICE-01")
+        self.assertEqual(flags[0]["quoted_span"], "we are very bad at our work")
+        self.assertTrue(flags[0]["suggested_fix"])
+
+    def test_local_voice_finding_survives_empty_gemini_response(self):
+        rules = [{
+            "rule_id": "VOICE-01",
+            "category": "tone",
+            "title": "Empowering & Confident Tone",
+            "text": "Maintain a confident, empowering, and helpful tone.",
+            "details": "",
+        }]
+
+        with (
+            patch("backend.services.semantic_engine.RAGService.retrieve_relevant_rules", return_value=rules),
+            patch("backend.services.semantic_engine.settings.GEMINI_API_KEY", "configured"),
+            patch.object(SemanticEngine, "_call_gemini_rag", return_value=[]),
+        ):
+            flags = SemanticEngine.run("org-test", "we are very bad at our work")
+
+        self.assertEqual(len(flags), 1)
+        self.assertEqual(flags[0]["rule_id"], "VOICE-01")
+        self.assertEqual(flags[0]["span"], "we are very bad at our work")
+        self.assertIn("committed to delivering", flags[0]["fix"])
+
+    def test_vector_retrieval_also_includes_lexical_voice_rules(self):
+        rules = [{
+            "rule_id": "VOICE-01",
+            "category": "tone",
+            "title": "Empowering tone",
+            "text": "Maintain a confident and helpful tone.",
+            "details": "",
+        }, {
+            "rule_id": "COLOR-01",
+            "category": "color",
+            "title": "Palette",
+            "text": "Use approved colors.",
+            "details": "",
+        }]
+
+        class Cursor:
+            def execute(self, *_args, **_kwargs):
+                return None
+
+            def fetchall(self):
+                return [rules[1]]
+
+        class Connection:
+            def cursor(self):
+                return Cursor()
+
+        @contextmanager
+        def fake_db():
+            yield Connection()
+
+        with (
+            patch.object(RAGService, "get_active_rules", return_value=rules),
+            patch("backend.services.rag_service.EmbeddingService.embed", return_value=[1.0]),
+            patch("backend.services.rag_service.EmbeddingService.to_vector_literal", return_value="[1]"),
+            patch("backend.services.rag_service.settings", SimpleNamespace(is_postgres=True)),
+            patch("backend.services.rag_service.get_db", fake_db),
+        ):
+            retrieved = RAGService.retrieve_relevant_rules(
+                "org-test", "we are very bad at our work", top_k=1
+            )
+
+        self.assertEqual(
+            {rule["rule_id"] for rule in retrieved},
+            {"VOICE-01", "COLOR-01"},
+        )
+
     def test_parses_valid_structured_gemini_response(self):
         response = SimpleNamespace(parsed={
             "flags": [{
