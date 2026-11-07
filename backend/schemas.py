@@ -34,6 +34,7 @@ class OrganizationBase(BaseModel):
 class RuleItem(BaseModel):
     id: str
     version_id: str
+    guideline_version: Optional[str] = None
     org_id: str
     rule_id: str
     category: Literal['tone', 'terminology', 'facts', 'claims', 'color', 'logo', 'accessibility']
@@ -205,19 +206,17 @@ class EvaluationMetricTarget(BaseModel):
     metric: str
     target: str
     measured: str
-    passed: bool
+    passed: Optional[bool]
     details: str
 
 class BenchmarkReport(BaseModel):
     run_timestamp: str
     total_test_samples: int
-    flag_precision: float
+    flag_precision: Optional[float]
     flag_precision_target: float
-    review_turnaround_improvement: float
-    review_turnaround_target: float
-    first_pass_compliance_rate: float
-    first_pass_compliance_target: float
-    avg_first_feedback_seconds: float
-    avg_first_feedback_target: float
+    avg_approval_turnaround_seconds: Optional[float]
+    labelled_sample_pass_rate: Optional[float]
+    avg_benchmark_scan_seconds: float
+    avg_benchmark_scan_target_seconds: Optional[float]
     metrics_summary: List[EvaluationMetricTarget]
     sample_results: List[Dict[str, Any]]

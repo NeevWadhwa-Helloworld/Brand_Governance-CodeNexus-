@@ -53,8 +53,7 @@ class AnalyticsService:
             else:
                 flag_precision = None
 
-            # 3. First-Pass Compliance Rate
-            # Proportion of initial drafts (version_num = 1) that had compliance >= 80% or 0 critical flags
+            # First-pass compliance is calculated only from initial revisions and their stored scan scores.
             cursor.execute("""
                 SELECT r.compliance_score
                 FROM revisions r
@@ -127,15 +126,16 @@ class AnalyticsService:
                     events[action] = event_time
 
             measured_turnarounds = [
-                max(0.0, (events["draft_approved"] - events["submitted_for_approval"]).total_seconds())
+                (events["draft_approved"] - events["submitted_for_approval"]).total_seconds()
                 for events in approval_cycles.values()
                 if "submitted_for_approval" in events and "draft_approved" in events
+                and events["draft_approved"] >= events["submitted_for_approval"]
             ]
-            turnaround_improvement = (
-                round(max(0.0, (1 - (sum(measured_turnarounds) / len(measured_turnarounds)) / 172800) * 100), 1)
+            avg_approval_turnaround_seconds = (
+                round(sum(measured_turnarounds) / len(measured_turnarounds), 1)
                 if measured_turnarounds else None
             )
-            avg_first_feedback_seconds = (
+            avg_scan_duration_seconds = (
                 round(sum(scan_durations_ms) / len(scan_durations_ms) / 1000, 3)
                 if scan_durations_ms else None
             )
@@ -174,10 +174,8 @@ class AnalyticsService:
                 "target_precision": 85.0,
                 "first_pass_compliance_rate": first_pass_rate,
                 "target_first_pass": 80.0,
-                "avg_turnaround_improvement": turnaround_improvement,
-                "target_turnaround_improvement": 50.0,
-                "avg_first_feedback_seconds": avg_first_feedback_seconds,
-                "target_feedback_seconds": 30.0
+                "avg_approval_turnaround_seconds": avg_approval_turnaround_seconds,
+                "avg_scan_duration_seconds": avg_scan_duration_seconds
             },
             "top_flagged_terms": top_flagged_terms,
             "category_breakdown": category_breakdown,

@@ -171,19 +171,6 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
 
   async function handleResolve(flagId, resolution, editedFix = null, comment = null) {
     try {
-      // Optimistic update of compliance score for instant feedback
-      const remainingFlags = (currentDraft.latest_revision?.flags || []).filter(
-        f => f.id !== flagId && f.resolution === 'pending'
-      );
-      const optimisticScore = Math.max(20.0, Math.round(100.0 - (remainingFlags.length * 14.0)));
-      setCurrentDraft(prev => prev ? {
-        ...prev,
-        latest_revision: {
-          ...prev.latest_revision,
-          compliance_score: optimisticScore
-        }
-      } : prev);
-
       const res = await api.resolveFlag(flagId, resolution, editedFix, comment, currentUser.id);
       if (res && res.updated_text) {
         setEditDraftText(res.updated_text);

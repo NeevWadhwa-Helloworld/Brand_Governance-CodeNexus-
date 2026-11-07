@@ -50,7 +50,7 @@ export default function BenchmarkSuite() {
   const failedSamplesCount = sampleResults.length - passedSamplesCount;
   const passRate = sampleResults.length > 0
     ? Math.round((passedSamplesCount / sampleResults.length) * 100)
-    : 0;
+    : null;
 
   const filteredSamples = sampleResults.filter(sample => {
     const matchesFilter =
@@ -146,12 +146,15 @@ export default function BenchmarkSuite() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {report.metrics_summary.map((m, idx) => {
               const metricTitle = m.metric.split('(')[0].trim();
-              const isPassed = m.passed;
+              const isMeasured = m.passed !== null && m.passed !== undefined;
+              const isPassed = m.passed === true;
               return (
                 <div
                   key={idx}
                   className={`bg-[#111830] border rounded-2xl p-4 sm:p-5 space-y-3 transition-all shadow-xl relative overflow-hidden group ${
-                    isPassed
+                    !isMeasured
+                      ? 'border-[#1F2A4A]'
+                      : isPassed
                       ? 'border-[#34D399]/40 hover:border-[#34D399] shadow-[#34D399]/5'
                       : 'border-[#F87171]/40 hover:border-[#F87171] shadow-[#F87171]/5'
                   }`}
@@ -160,7 +163,11 @@ export default function BenchmarkSuite() {
                     <span className="text-xs font-semibold text-[#E8ECF8] line-clamp-1" title={m.metric}>
                       {metricTitle}
                     </span>
-                    {isPassed ? (
+                    {!isMeasured ? (
+                      <span className="bg-[#7C88AB]/15 text-[#AAB4D0] border border-[#7C88AB]/30 text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0">
+                        NOT MEASURED
+                      </span>
+                    ) : isPassed ? (
                       <span className="bg-[#34D399]/15 text-[#34D399] border border-[#34D399]/30 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 shrink-0">
                         <CheckCircle2 className="w-3 h-3" /> PASSED
                       </span>
@@ -178,15 +185,6 @@ export default function BenchmarkSuite() {
                     <span className="text-xs text-[#7C88AB] font-mono">
                       Target: <span className="text-[#AAB4D0] font-semibold">{m.target}</span>
                     </span>
-                  </div>
-
-                  <div className="w-full bg-[#0A0F1E] h-1.5 rounded-full overflow-hidden border border-[#1F2A4A]/60">
-                    <div
-                      className={`h-full rounded-full transition-all duration-700 ${
-                        isPassed ? 'bg-[#34D399]' : 'bg-[#F87171]'
-                      }`}
-                      style={{ width: isPassed ? '100%' : '50%' }}
-                    />
                   </div>
 
                   <p className="text-[11px] text-[#7C88AB] leading-relaxed">
@@ -209,7 +207,9 @@ export default function BenchmarkSuite() {
 
               <div className="flex items-center space-x-2 text-xs font-mono">
                 <span className="bg-[#0E1428] border border-[#1F2A4A] px-2.5 py-1 rounded-lg text-[#34D399] font-bold">
-                  {passedSamplesCount}/{sampleResults.length} Passed ({passRate}%)
+                  {sampleResults.length === 0
+                    ? 'No labelled samples returned'
+                    : `${passedSamplesCount}/${sampleResults.length} Passed (${passRate}%)`}
                 </span>
               </div>
             </div>
@@ -364,7 +364,7 @@ export default function BenchmarkSuite() {
           <TestTube2 className="w-10 h-10 text-[#4F6BED] mx-auto opacity-60" />
           <h3 className="text-sm font-bold text-[#E8ECF8]">No Benchmark Run Yet</h3>
           <p className="text-xs text-[#7C88AB] max-w-md mx-auto">
-            Execute the labelled dataset benchmark to measure flag precision, turnaround improvements, first-pass compliance, and scan latencies.
+            Execute the labelled dataset benchmark to measure rule-detection results, labelled-sample pass rate, and scan duration. Approval turnaround is reported only when real approval cycles exist.
           </p>
           <button
             type="button"

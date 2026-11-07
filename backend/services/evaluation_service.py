@@ -12,11 +12,8 @@ logger = logging.getLogger(__name__)
 class EvaluationService:
     """
     Evaluation & Benchmark Suite (Section 9.1 of Report):
-    Validates platform against target success metrics on a labelled sample set:
-    - Flag precision >= 85%
-    - Review turnaround improvement >= 50%
-    - First-pass compliance >= 80%
-    - Time to first feedback < 30s
+    Measures labelled flag precision, exact sample pass rate, and benchmark scan
+    duration. Approval turnaround is reported only from completed audit cycles.
     """
 
     LABELLED_DATASET = [
@@ -89,7 +86,11 @@ class EvaluationService:
             duration = time.time() - t0
             latencies.append(duration)
 
-            all_flags = l1_flags + l2_flags
+            unique_flags = {}
+            for flag in l1_flags + l2_flags:
+                key = (flag["rule_id"], flag.get("span", "").casefold().strip())
+                unique_flags[key] = flag
+            all_flags = list(unique_flags.values())
             detected_rule_ids = {f["rule_id"] for f in all_flags}
             expected_set = set(sample["expected_flags"])
 
@@ -99,11 +100,7 @@ class EvaluationService:
                 if f["rule_id"] in expected_set:
                     true_positive_flags += 1
 
-            # Recall-aware sample evaluation: all expected ground truth violations detected
-            if not expected_set:
-                passed_sample = (len(detected_rule_ids) == 0)
-            else:
-                passed_sample = expected_set.issubset(detected_rule_ids)
+            passed_sample = expected_set == detected_rule_ids
 
             results.append({
                 "sample_id": sample["id"],
@@ -116,7 +113,10 @@ class EvaluationService:
                 "passed": passed_sample
             })
 
-        precision = round((true_positive_flags / max(1, total_flags_generated)) * 100, 1)
+        precision = (
+            round((true_positive_flags / total_flags_generated) * 100, 1)
+            if total_flags_generated else None
+        )
         avg_latency = round(sum(latencies) / len(latencies), 3)
 
         # Measure operational metrics from persisted audit events rather than reporting
@@ -139,45 +139,49 @@ class EvaluationService:
                 try:
                     start = cls._parse_timestamp(row["submitted_at"])
                     end = cls._parse_timestamp(row["approved_at"])
-                    measured_turnarounds.append(max(0.0, (end - start).total_seconds()))
+                    if end < start:
+                        logger.warning("Skipping reversed approval timestamps for draft %s", row["draft_id"])
+                        continue
+                    measured_turnarounds.append((end - start).total_seconds())
                 except (TypeError, ValueError):
                     logger.warning("Skipping approval cycle with invalid audit timestamps for draft %s", row["draft_id"])
                     continue
-        if measured_turnarounds:
-            avg_turnaround_seconds = sum(measured_turnarounds) / len(measured_turnarounds)
-            turnaround_improvement = round(max(0.0, (1 - avg_turnaround_seconds / 172800) * 100), 1)
-        else:
-            turnaround_improvement = 0.0
-        first_pass_rate = round(
-            sum(1 for sample in cls.LABELLED_DATASET if not sample["expected_flags"])
-            / len(cls.LABELLED_DATASET) * 100,
-            1
+        avg_approval_turnaround_seconds = (
+            round(sum(measured_turnarounds) / len(measured_turnarounds), 1)
+            if measured_turnarounds else None
         )
+        sample_pass_rate = round(
+            sum(1 for result in results if result["passed"]) / len(results) * 100,
+            1,
+        ) if results else None
 
         metrics_summary = [
             {
-                "metric": "Flag precision (Share of AI flags reviewers agree with)",
+                "metric": "Labelled flag precision (Detected flags matching expected rules)",
                 "target": "≥ 85%",
-                "measured": f"{precision}%",
-                "passed": precision >= 85.0,
+                "measured": f"{precision}%" if precision is not None else "Not measured",
+                "passed": precision >= 85.0 if precision is not None else None,
                 "details": f"{true_positive_flags}/{total_flags_generated} flags verified against labelled ground truth"
             },
             {
-                "metric": "Review turnaround improvement vs manual baseline",
-                "target": "≥ 50% faster",
-                "measured": f"{turnaround_improvement}% faster",
-                "passed": turnaround_improvement >= 50.0,
-                "details": "Automated pre-audit shrinks turnaround from ~48 hours to immediate feedback"
+                "metric": "Observed approval turnaround",
+                "target": "Not configured",
+                "measured": (
+                    f"{avg_approval_turnaround_seconds} s"
+                    if avg_approval_turnaround_seconds is not None else "Not measured"
+                ),
+                "passed": None,
+                "details": f"Measured from {len(measured_turnarounds)} completed approval cycles"
             },
             {
-                "metric": "First-pass compliance rate",
+                "metric": "Labelled sample pass rate",
                 "target": "≥ 80%",
-                "measured": f"{first_pass_rate}%",
-                "passed": first_pass_rate >= 80.0,
-                "details": "Creators correct issues during drafting before managerial submission"
+                "measured": f"{sample_pass_rate}%" if sample_pass_rate is not None else "Not measured",
+                "passed": sample_pass_rate >= 80.0 if sample_pass_rate is not None else None,
+                "details": f"{sum(1 for result in results if result['passed'])}/{len(results)} samples exactly matched labelled rules"
             },
             {
-                "metric": "Time to first feedback (Text drafts)",
+                "metric": "Average benchmark scan duration",
                 "target": "< 30 s",
                 "measured": f"{avg_latency:.2f} s",
                 "passed": avg_latency < 30.0,
@@ -190,12 +194,10 @@ class EvaluationService:
             "total_test_samples": len(cls.LABELLED_DATASET),
             "flag_precision": precision,
             "flag_precision_target": 85.0,
-            "review_turnaround_improvement": turnaround_improvement,
-            "review_turnaround_target": 50.0,
-            "first_pass_compliance_rate": first_pass_rate,
-            "first_pass_compliance_target": 80.0,
-            "avg_first_feedback_seconds": avg_latency,
-            "avg_first_feedback_target": 30.0,
+            "avg_approval_turnaround_seconds": avg_approval_turnaround_seconds,
+            "labelled_sample_pass_rate": sample_pass_rate,
+            "avg_benchmark_scan_seconds": avg_latency,
+            "avg_benchmark_scan_target_seconds": 30.0,
             "metrics_summary": metrics_summary,
             "sample_results": results
         }

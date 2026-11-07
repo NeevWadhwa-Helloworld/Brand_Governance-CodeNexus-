@@ -53,7 +53,7 @@ const ROLE_TABS = {
 export default function App() {
   const [activeTab, setActiveTab] = useState('studio');
   const [currentUser, setCurrentUser] = useState(null);
-  const [pendingCount, setPendingCount] = useState(0);
+  const [pendingCount, setPendingCount] = useState(null);
   const [toast, setToast] = useState(null);
   const [authError, setAuthError] = useState(null);
   const [authLoading, setAuthLoading] = useState(false);
@@ -92,9 +92,10 @@ export default function App() {
   async function refreshPendingCount() {
     try {
       const drafts = await api.getDrafts('Pending Approval');
-      setPendingCount(Array.isArray(drafts) ? drafts.length : 0);
+      setPendingCount(Array.isArray(drafts) ? drafts.length : null);
     } catch (e) {
       console.error(e);
+      setPendingCount(null);
     }
   }
 
@@ -140,6 +141,7 @@ export default function App() {
   function handleLogout() {
     localStorage.removeItem('access_token');
     setCurrentUser(null);
+    setPendingCount(null);
     setActiveTab('studio');
   }
 

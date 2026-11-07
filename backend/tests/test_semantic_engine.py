@@ -8,6 +8,7 @@ from backend.services.analytics_service import AnalyticsService
 from backend.services.evaluation_service import EvaluationService
 from backend.services.semantic_engine import SemanticEngine
 from backend.services.rag_service import RAGService
+from backend.schemas import BenchmarkReport
 
 
 class EvaluationTimestampTests(unittest.TestCase):
@@ -66,7 +67,39 @@ class EvaluationTimestampTests(unittest.TestCase):
             report = EvaluationService.run_benchmark("org-test")
 
         self.assertEqual(report["total_test_samples"], 5)
-        self.assertEqual(report["review_turnaround_improvement"], 50.0)
+        self.assertEqual(report["avg_approval_turnaround_seconds"], 86400.0)
+        self.assertEqual(report["labelled_sample_pass_rate"], 40.0)
+        self.assertIsNone(report["flag_precision"])
+        self.assertEqual(report["metrics_summary"][0]["measured"], "Not measured")
+        self.assertIsNone(report["metrics_summary"][1]["passed"])
+        BenchmarkReport.model_validate(report)
+
+    def test_benchmark_reports_missing_operational_data_as_unmeasured(self):
+        class Cursor:
+            def execute(self, *_args, **_kwargs):
+                return None
+
+            def fetchall(self):
+                return []
+
+        class Connection:
+            def cursor(self):
+                return Cursor()
+
+        @contextmanager
+        def fake_db():
+            yield Connection()
+
+        with (
+            patch("backend.services.evaluation_service.get_db", fake_db),
+            patch("backend.services.evaluation_service.DeterministicEngine.run_all", return_value=[]),
+            patch("backend.services.evaluation_service.SemanticEngine.run", return_value=[]),
+        ):
+            report = EvaluationService.run_benchmark("org-test")
+
+        self.assertIsNone(report["avg_approval_turnaround_seconds"])
+        self.assertEqual(report["metrics_summary"][1]["measured"], "Not measured")
+        self.assertIsNone(report["metrics_summary"][1]["passed"])
 
 
 class SemanticEngineResponseTests(unittest.TestCase):

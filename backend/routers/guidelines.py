@@ -49,7 +49,7 @@ def get_rules(org_id: str = Depends(_current_org_id)):
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT r.* FROM rules r
+            SELECT r.*, gv.version AS guideline_version FROM rules r
             JOIN guideline_versions gv ON r.version_id = gv.id
             WHERE r.org_id = ? AND gv.is_active = 1
             ORDER BY r.rule_id ASC

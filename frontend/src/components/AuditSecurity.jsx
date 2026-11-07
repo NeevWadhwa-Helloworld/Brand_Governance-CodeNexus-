@@ -169,7 +169,7 @@ export default function AuditSecurity({ currentUser }) {
             onClick={handleExport}
             disabled={exporting}
             className="text-xs bg-[#0E1428] hover:bg-[#172040] text-[#AAB4D0] hover:text-[#E8ECF8] border border-[#1F2A4A] px-3.5 py-1.5 rounded-xl flex items-center space-x-1.5 transition-all shadow-sm disabled:opacity-60"
-            title="Download complete immutable audit logs in CSV format"
+            title="Download the most recent audit logs in CSV format"
           >
             <Download className="w-3.5 h-3.5 text-[#36D6A0]" />
             <span>{exporting ? 'Exporting CSV...' : 'Export CSV'}</span>
@@ -204,8 +204,8 @@ export default function AuditSecurity({ currentUser }) {
             Per-tenant data isolation strictly enforced across draft records, revisions, RAG rule vectors, and API routes.
           </p>
           <div className="pt-1 border-t border-[#1F2A4A]/60 flex items-center justify-between text-[10px] font-mono text-[#7C88AB]">
-            <span>Active Tenant: <strong className="text-[#E8ECF8]">{currentUser?.org_id || 'org_inkloom'}</strong></span>
-            <span>DB: <strong className="text-[#60A5FA]">{systemInfo?.database ? (systemInfo.database.includes('postgresql') ? 'Postgres' : 'SQLite WAL') : 'SQLite WAL'}</strong></span>
+            <span>Active Tenant: <strong className="text-[#E8ECF8]">{currentUser?.org_id || 'Not reported'}</strong></span>
+            <span>DB: <strong className="text-[#60A5FA]">{systemInfo?.database ? (systemInfo.database.includes('postgresql') ? 'Postgres' : 'SQLite WAL') : 'Not reported'}</strong></span>
           </div>
         </div>
 
@@ -217,14 +217,20 @@ export default function AuditSecurity({ currentUser }) {
               <span>PII Sanitization Engine</span>
             </div>
             <span className="text-[10px] uppercase font-mono font-bold px-2 py-0.5 rounded-full bg-[#60A5FA]/10 text-[#60A5FA] border border-[#60A5FA]/20">
-              Active
+              {systemInfo?.security?.pii_redaction_enabled === true
+                ? 'Active'
+                : systemInfo?.security?.pii_redaction_enabled === false ? 'Disabled' : 'Not reported'}
             </span>
           </div>
           <p className="text-xs text-[#AAB4D0] leading-relaxed">
             Automated redaction of sensitive entities, email addresses, and personal identifiers prior to external model evaluations.
           </p>
           <div className="pt-1 border-t border-[#1F2A4A]/60 flex items-center justify-between text-[10px] font-mono text-[#7C88AB]">
-            <span>Redaction: <strong className="text-[#34D399]">{systemInfo?.security?.pii_redaction_enabled ? 'Automated' : 'Enabled'}</strong></span>
+            <span>Redaction: <strong className="text-[#34D399]">
+              {systemInfo?.security?.pii_redaction_enabled === true
+                ? 'Automated'
+                : systemInfo?.security?.pii_redaction_enabled === false ? 'Disabled' : 'Not reported'}
+            </strong></span>
             <span>Scope: <strong className="text-[#AAB4D0]">Pre-Inference</strong></span>
           </div>
         </div>
@@ -244,8 +250,8 @@ export default function AuditSecurity({ currentUser }) {
             Context window is strictly bounded to retrieved numbered rules; hallucinated or ungrounded flags are automatically discarded.
           </p>
           <div className="pt-1 border-t border-[#1F2A4A]/60 flex items-center justify-between text-[10px] font-mono text-[#7C88AB]">
-            <span>Model: <strong className="text-[#E8ECF8]">{systemInfo?.ai_engine?.model || 'gemini-2.5-flash'}</strong></span>
-            <span>Min Confidence: <strong className="text-[#34D399]">{systemInfo?.ai_engine?.min_confidence ? `${Math.round(systemInfo.ai_engine.min_confidence * 100)}%` : '70%'}</strong></span>
+            <span>Model: <strong className="text-[#E8ECF8]">{systemInfo?.ai_engine?.model || 'Not reported'}</strong></span>
+            <span>Min Confidence: <strong className="text-[#34D399]">{Number.isFinite(systemInfo?.ai_engine?.min_confidence) ? `${Math.round(systemInfo.ai_engine.min_confidence * 100)}%` : 'Not reported'}</strong></span>
           </div>
         </div>
       </div>
@@ -259,7 +265,7 @@ export default function AuditSecurity({ currentUser }) {
               Immutable Governance Audit Events
             </h3>
             <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-[#172040] text-[#AAB4D0] border border-[#1F2A4A]">
-              {filteredLogs.length} of {logs.length} logged
+              {filteredLogs.length} matching in {logs.length} loaded recent entries
             </span>
           </div>
           <span className="text-[11px] font-mono text-[#7C88AB] flex items-center gap-1.5">
@@ -490,7 +496,7 @@ export default function AuditSecurity({ currentUser }) {
                   <div className="flex justify-between">
                     <span className="text-[#7C88AB]">Entry Hash:</span>
                     <span className="text-[#34D399] truncate max-w-[280px]" title={selectedLog.entry_hash}>
-                      {selectedLog.entry_hash || 'SHA-256 Verified'}
+                      {selectedLog.entry_hash || 'Hash not available'}
                     </span>
                   </div>
                   {selectedLog.previous_hash && (

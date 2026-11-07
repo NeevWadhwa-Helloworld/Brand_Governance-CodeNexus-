@@ -44,7 +44,7 @@ export default function SourceOfTruth({ currentUser }) {
 
   // Ingest Guidelines Form
   const [ingestTitle, setIngestTitle] = useState('');
-  const [ingestVersion, setIngestVersion] = useState('v3.3');
+  const [ingestVersion, setIngestVersion] = useState('');
   const [ingestText, setIngestText] = useState('');
   const [ingestResult, setIngestResult] = useState(null);
   const [ingestLoading, setIngestLoading] = useState(false);
@@ -135,7 +135,7 @@ export default function SourceOfTruth({ currentUser }) {
       const formData = new FormData();
       formData.append('name', newLogoName.trim());
       formData.append('file', newLogoFile);
-      formData.append('min_clearance_pct', parseFloat(newLogoClearance) || 10.0);
+      formData.append('min_clearance_pct', Number(newLogoClearance));
       await api.uploadLogo(formData, currentUser?.id);
       setShowAddLogo(false);
       setNewLogoName('');
@@ -248,7 +248,7 @@ export default function SourceOfTruth({ currentUser }) {
         name: newColorName.trim(),
         hex_code: newColorHex.toUpperCase(),
         role: newColorRole,
-        min_contrast: parseFloat(newColorContrast) || 4.5
+        min_contrast: Number(newColorContrast)
       }, currentUser?.id);
       setShowAddColor(false);
       setNewColorName('');
@@ -266,14 +266,16 @@ export default function SourceOfTruth({ currentUser }) {
   // --- Ingest Handlers ---
   async function handleIngest(e) {
     e.preventDefault();
+    if (!ingestVersion.trim()) return;
     setIngestLoading(true);
     try {
       const res = await api.ingestGuidelines({
         title: ingestTitle.trim() || 'Brand Guidelines Revision',
-        version: ingestVersion.trim() || 'v3.3',
+        version: ingestVersion.trim(),
         content: ingestText
       }, currentUser?.id);
       setIngestResult(res);
+      setIngestVersion('');
       await loadAllData();
     } catch (e) {
       console.error(e);
@@ -283,10 +285,7 @@ export default function SourceOfTruth({ currentUser }) {
   }
 
   // Active Guideline Version resolution from available rules
-  const activeVersionRaw = rules.length > 0 && rules[0].version_id ? rules[0].version_id : null;
-  const activeVersionDisplay = activeVersionRaw
-    ? (activeVersionRaw.startsWith('gv_') ? activeVersionRaw.replace(/^gv_v?/, 'v').replace(/_/g, '.') : activeVersionRaw)
-    : 'v3.2';
+  const activeVersionDisplay = rules.find(rule => rule.guideline_version)?.guideline_version || 'Not available';
 
   // Category badge colors for rules
   const categoryStyles = {
@@ -868,13 +867,13 @@ export default function SourceOfTruth({ currentUser }) {
                   />
                 </div>
                 <div>
-                  <label className="block text-[#7C88AB] mb-1 font-medium">Approved Metric Value (e.g. 50,000+ active users)</label>
+                  <label className="block text-[#7C88AB] mb-1 font-medium">Approved Metric Value</label>
                   <input
                     type="text"
                     required
                     value={newFactMetric}
                     onChange={e => setNewFactMetric(e.target.value)}
-                    placeholder="50,000+ active users"
+                    placeholder="Enter the verified metric value"
                     className="w-full bg-[#0E1428] border border-[#1F2A4A] rounded-xl p-2.5 text-[#E8ECF8] font-bold focus:outline-none focus:border-[#4F6BED]"
                   />
                 </div>
@@ -887,7 +886,7 @@ export default function SourceOfTruth({ currentUser }) {
                   required
                   value={newFactClaim}
                   onChange={e => setNewFactClaim(e.target.value)}
-                  placeholder="Over 50,000+ active users worldwide"
+                  placeholder="State the approved claim"
                   className="w-full bg-[#0E1428] border border-[#1F2A4A] rounded-xl p-2.5 text-[#E8ECF8] focus:outline-none focus:border-[#4F6BED]"
                 />
               </div>
@@ -1383,7 +1382,7 @@ export default function SourceOfTruth({ currentUser }) {
                   required
                   value={ingestVersion}
                   onChange={e => setIngestVersion(e.target.value)}
-                  placeholder="v3.3"
+                  placeholder="Enter the guideline version"
                   className="w-full bg-[#0E1428] border border-[#1F2A4A] rounded-xl p-2.5 text-[#E8ECF8] font-mono focus:outline-none focus:border-[#4F6BED]"
                 />
               </div>

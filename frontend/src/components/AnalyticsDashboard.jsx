@@ -2,8 +2,21 @@ import React, { useState, useEffect } from 'react';
 import { api } from '../api';
 import {
   BarChart3, TrendingUp, CheckCircle2, AlertTriangle, Lightbulb,
-  Clock, Award, FileText, RefreshCw, Search, Activity
+  FileText, RefreshCw, Search, Activity
 } from 'lucide-react';
+
+function finiteNumber(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function formatDuration(seconds) {
+  if (!Number.isFinite(seconds)) return 'Not measured';
+  if (seconds < 60) return `${seconds} sec`;
+  if (seconds < 3600) return `${(seconds / 60).toFixed(1)} min`;
+  return `${(seconds / 3600).toFixed(1)} hr`;
+}
 
 export default function AnalyticsDashboard() {
   const [data, setData] = useState(null);
@@ -102,25 +115,21 @@ export default function AnalyticsDashboard() {
     summary = {},
     top_flagged_terms = [],
     category_breakdown = [],
-    resolution_stats = { accepted: 0, edited: 0, dismissed: 0, pending: 0 },
+    resolution_stats = {},
     governance_recommendations = [],
     compliance_trends = []
   } = data || {};
 
-  // Normalize trends data: prefer trends from getAnalyticsTrends(), fallback to compliance_trends
-  const trendList = trends.length > 0
-    ? trends.map(t => ({
-        date: t.date || t.scan_date,
-        score: t.compliance_score ?? t.avg_compliance ?? 0,
-        scans: t.scans ?? t.scan_count ?? 1,
-        flags: t.flags ?? t.flag_count ?? 0
-      }))
-    : (compliance_trends || []).map(t => ({
-        date: t.scan_date || t.date,
-        score: t.avg_compliance ?? t.compliance_score ?? 0,
-        scans: t.scan_count ?? t.scans ?? 1,
-        flags: t.flag_count ?? t.flags ?? 0
-      }));
+  const trendRows = trends.length > 0 ? trends : compliance_trends;
+  const trendList = trendRows.map(t => ({
+    date: t.date || t.scan_date,
+    score: finiteNumber(t.compliance_score ?? t.avg_compliance),
+    scans: finiteNumber(t.scans ?? t.scan_count),
+    flags: finiteNumber(t.flags ?? t.flag_count)
+  })).filter(item =>
+    item.date && item.score !== null && item.score >= 0 && item.score <= 100
+    && item.scans !== null && item.scans >= 0 && item.flags !== null && item.flags >= 0
+  );
 
   // Chart Coordinate Calculations
   const chartHeight = 160;
@@ -146,7 +155,15 @@ export default function AnalyticsDashboard() {
     ? `${pathD} L ${points[points.length - 1].x.toFixed(1)} ${(paddingY + plotHeight).toFixed(1)} L ${points[0].x.toFixed(1)} ${(paddingY + plotHeight).toFixed(1)} Z`
     : '';
 
-  const targetLineY = paddingY + plotHeight - (80 / 100) * plotHeight;
+  const firstPassTarget = finiteNumber(summary.target_first_pass);
+  const precisionTarget = finiteNumber(summary.target_precision);
+  const flagPrecision = finiteNumber(summary.flag_precision);
+  const firstPassRate = finiteNumber(summary.first_pass_compliance_rate);
+  const resolutionCounts = {
+    accepted: finiteNumber(resolution_stats.accepted),
+    edited: finiteNumber(resolution_stats.edited),
+    dismissed: finiteNumber(resolution_stats.dismissed)
+  };
 
   // Filter top flagged terms
   const filteredTerms = top_flagged_terms.filter(item => {
@@ -158,7 +175,9 @@ export default function AnalyticsDashboard() {
   });
 
   const uniqueCategories = Array.from(new Set(top_flagged_terms.map(t => t.category).filter(Boolean)));
-  const totalResolutions = (resolution_stats.accepted || 0) + (resolution_stats.edited || 0) + (resolution_stats.dismissed || 0);
+  const totalResolutions = Object.values(resolutionCounts).every(value => value !== null)
+    ? Object.values(resolutionCounts).reduce((total, value) => total + value, 0)
+    : null;
 
   // Evidence-backed recommendation validation:
   // A recommendation is only displayed if its triggering evidence (repeated occurrences and/or creator dismissals)
@@ -221,13 +240,15 @@ export default function AnalyticsDashboard() {
         </div>
 
         <div className="flex items-center space-x-2.5">
-          {summary.total_drafts !== undefined && (
+          {finiteNumber(summary.total_drafts) !== null && (
             <div className="hidden sm:flex items-center space-x-2 bg-[#0E1428] border border-[#1F2A4A] rounded-xl px-3 py-1.5 text-xs text-[#7C88AB]">
-              <span>Drafts Analyzed:</span>
+              <span>Total Drafts:</span>
               <span className="font-mono font-bold text-[#E8ECF8]">{summary.total_drafts}</span>
               <span className="text-[#1F2A4A]">|</span>
               <span>Approved:</span>
-              <span className="font-mono font-bold text-[#34D399]">{summary.approved_drafts || 0}</span>
+              <span className="font-mono font-bold text-[#34D399]">
+                {finiteNumber(summary.approved_drafts) ?? 'Not reported'}
+              </span>
             </div>
           )}
 
@@ -250,25 +271,31 @@ export default function AnalyticsDashboard() {
         <div className="bg-[#111830] border border-[#1F2A4A] rounded-2xl p-4 sm:p-5 space-y-2.5 shadow-xl relative overflow-hidden group hover:border-[#34D399]/40 transition-colors">
           <div className="flex items-center justify-between text-xs text-[#7C88AB]">
             <span className="font-medium">AI Flag Precision</span>
-            <span className="text-[#34D399] font-mono text-[10px] font-semibold bg-[#34D399]/10 border border-[#34D399]/20 px-2 py-0.5 rounded-full">
-              Target ≥ {summary.target_precision ?? 85}%
-            </span>
+            {precisionTarget !== null && (
+              <span className="text-[#34D399] font-mono text-[10px] font-semibold bg-[#34D399]/10 border border-[#34D399]/20 px-2 py-0.5 rounded-full">
+                Target ≥ {precisionTarget}%
+              </span>
+            )}
           </div>
           <div className="text-2xl sm:text-3xl font-extrabold text-[#E8ECF8] font-mono flex items-baseline gap-2">
-            {summary.flag_precision == null ? 'Not measured' : `${summary.flag_precision}%`}
+            {flagPrecision === null ? 'Not measured' : `${flagPrecision}%`}
             <span className="text-xs font-semibold text-[#34D399] flex items-center font-sans">
               <TrendingUp className="w-3.5 h-3.5 mr-0.5" />
-              {summary.flag_precision == null
+              {flagPrecision === null
                 ? 'Needs review decisions'
-                : summary.flag_precision >= (summary.target_precision ?? 85) ? 'Exceeds' : 'Tracking'}
+                : precisionTarget === null
+                  ? 'Measured'
+                  : flagPrecision >= precisionTarget ? 'On target' : 'Below target'}
             </span>
           </div>
-          <div className="w-full bg-[#0A0F1E] h-1.5 rounded-full overflow-hidden border border-[#1F2A4A]/60">
-            <div
-              className="bg-gradient-to-r from-[#10B981] to-[#34D399] h-full rounded-full transition-all duration-700"
-              style={{ width: `${Math.min(100, summary.flag_precision ?? 0)}%` }}
-            />
-          </div>
+          {flagPrecision !== null && (
+            <div className="w-full bg-[#0A0F1E] h-1.5 rounded-full overflow-hidden border border-[#1F2A4A]/60">
+              <div
+                className="bg-gradient-to-r from-[#10B981] to-[#34D399] h-full rounded-full transition-all duration-700"
+                style={{ width: `${Math.max(0, Math.min(100, flagPrecision))}%` }}
+              />
+            </div>
+          )}
           <p className="text-[11px] text-[#7C88AB] leading-relaxed">
             Share of flagged issues accepted or edited by reviewers without dismissal.
           </p>
@@ -278,91 +305,61 @@ export default function AnalyticsDashboard() {
         <div className="bg-[#111830] border border-[#1F2A4A] rounded-2xl p-4 sm:p-5 space-y-2.5 shadow-xl relative overflow-hidden group hover:border-[#60A5FA]/40 transition-colors">
           <div className="flex items-center justify-between text-xs text-[#7C88AB]">
             <span className="font-medium">First-Pass Compliance</span>
-            <span className="text-[#60A5FA] font-mono text-[10px] font-semibold bg-[#60A5FA]/10 border border-[#60A5FA]/20 px-2 py-0.5 rounded-full">
-              Target ≥ {summary.target_first_pass ?? 80}%
-            </span>
+            {firstPassTarget !== null && (
+              <span className="text-[#60A5FA] font-mono text-[10px] font-semibold bg-[#60A5FA]/10 border border-[#60A5FA]/20 px-2 py-0.5 rounded-full">
+                Target ≥ {firstPassTarget}%
+              </span>
+            )}
           </div>
           <div className="text-2xl sm:text-3xl font-extrabold text-[#E8ECF8] font-mono flex items-baseline gap-2">
-            {summary.first_pass_compliance_rate == null
+            {firstPassRate === null
               ? 'Not measured'
-              : `${summary.first_pass_compliance_rate}%`}
+              : `${firstPassRate}%`}
             <span className="text-xs font-semibold text-[#60A5FA] flex items-center font-sans">
               <CheckCircle2 className="w-3.5 h-3.5 mr-0.5" />
-              {summary.first_pass_compliance_rate == null
+              {firstPassRate === null
                 ? 'No scanned drafts'
-                : summary.first_pass_compliance_rate >= (summary.target_first_pass ?? 80) ? 'On Target' : 'Action Required'}
+                : firstPassTarget === null
+                  ? 'Measured'
+                  : firstPassRate >= firstPassTarget ? 'On target' : 'Below target'}
             </span>
           </div>
-          <div className="w-full bg-[#0A0F1E] h-1.5 rounded-full overflow-hidden border border-[#1F2A4A]/60">
-            <div
-              className="bg-gradient-to-r from-[#2563EB] to-[#60A5FA] h-full rounded-full transition-all duration-700"
-              style={{ width: `${Math.min(100, summary.first_pass_compliance_rate ?? 0)}%` }}
-            />
-          </div>
+          {firstPassRate !== null && (
+            <div className="w-full bg-[#0A0F1E] h-1.5 rounded-full overflow-hidden border border-[#1F2A4A]/60">
+              <div
+                className="bg-gradient-to-r from-[#2563EB] to-[#60A5FA] h-full rounded-full transition-all duration-700"
+                style={{ width: `${Math.max(0, Math.min(100, firstPassRate))}%` }}
+              />
+            </div>
+          )}
           <p className="text-[11px] text-[#7C88AB] leading-relaxed">
             Drafts meeting brand standards upon initial submission without revision cycles.
           </p>
         </div>
 
-        {/* Card 3: Review Cycle Turnaround */}
+        {/* Card 3: Observed Approval Turnaround */}
         <div className="bg-[#111830] border border-[#1F2A4A] rounded-2xl p-4 sm:p-5 space-y-2.5 shadow-xl relative overflow-hidden group hover:border-[#A78BFA]/40 transition-colors">
           <div className="flex items-center justify-between text-xs text-[#7C88AB]">
-            <span className="font-medium">Review Cycle Speedup</span>
-            <span className="text-[#A78BFA] font-mono text-[10px] font-semibold bg-[#A78BFA]/10 border border-[#A78BFA]/20 px-2 py-0.5 rounded-full">
-              Target ≥ {summary.target_turnaround_improvement ?? 50}%
-            </span>
+            <span className="font-medium">Average Approval Turnaround</span>
           </div>
           <div className="text-2xl sm:text-3xl font-extrabold text-[#E8ECF8] font-mono flex items-baseline gap-2">
-            {summary.avg_turnaround_improvement == null
-              ? 'Not measured'
-              : `+${summary.avg_turnaround_improvement}%`}
-            {summary.avg_turnaround_improvement != null && (
-              <span className="text-xs font-semibold text-[#A78BFA] flex items-center font-sans">
-                <Award className="w-3.5 h-3.5 mr-0.5" /> Faster
-              </span>
-            )}
-          </div>
-          <div className="w-full bg-[#0A0F1E] h-1.5 rounded-full overflow-hidden border border-[#1F2A4A]/60">
-            <div
-              className="bg-gradient-to-r from-[#7C3AED] to-[#A78BFA] h-full rounded-full transition-all duration-700"
-              style={{ width: `${Math.min(100, summary.avg_turnaround_improvement ?? 0)}%` }}
-            />
+            {formatDuration(finiteNumber(summary.avg_approval_turnaround_seconds))}
           </div>
           <p className="text-[11px] text-[#7C88AB] leading-relaxed">
-            Time from draft creation to sign-off compared to the 48h manual review baseline.
+            Average elapsed time across completed approval cycles, based on recorded audit events.
           </p>
         </div>
 
-        {/* Card 4: First Feedback Latency */}
+        {/* Card 4: Measured Scan Duration */}
         <div className="bg-[#111830] border border-[#1F2A4A] rounded-2xl p-4 sm:p-5 space-y-2.5 shadow-xl relative overflow-hidden group hover:border-[#FBBF24]/40 transition-colors">
           <div className="flex items-center justify-between text-xs text-[#7C88AB]">
-            <span className="font-medium">Time to First Feedback</span>
-            <span className="text-[#FBBF24] font-mono text-[10px] font-semibold bg-[#FBBF24]/10 border border-[#FBBF24]/20 px-2 py-0.5 rounded-full">
-              Target &lt; {summary.target_feedback_seconds ?? 30}s
-            </span>
+            <span className="font-medium">Average Scan Duration</span>
           </div>
           <div className="text-2xl sm:text-3xl font-extrabold text-[#E8ECF8] font-mono flex items-baseline gap-2">
-            {summary.avg_first_feedback_seconds == null
-              ? 'Not measured'
-              : `${summary.avg_first_feedback_seconds}s`}
-            {summary.avg_first_feedback_seconds != null && (
-              <span className="text-xs font-semibold text-[#FBBF24] flex items-center font-sans">
-                <Clock className="w-3.5 h-3.5 mr-0.5" /> Measured
-              </span>
-            )}
-          </div>
-          <div className="w-full bg-[#0A0F1E] h-1.5 rounded-full overflow-hidden border border-[#1F2A4A]/60">
-            <div
-              className="bg-gradient-to-r from-[#D97706] to-[#FBBF24] h-full rounded-full transition-all duration-700"
-              style={{
-                width: `${summary.avg_first_feedback_seconds == null
-                  ? 0
-                  : Math.max(0, Math.min(100, 100 - (summary.avg_first_feedback_seconds / (summary.target_feedback_seconds ?? 30)) * 100))}%`
-              }}
-            />
+            {formatDuration(finiteNumber(summary.avg_scan_duration_seconds))}
           </div>
           <p className="text-[11px] text-[#7C88AB] leading-relaxed">
-            Measured scan latency from recorded scan events; no recorded scan timing is shown as unavailable.
+            Average duration from scan-completed audit events.
           </p>
         </div>
       </div>
@@ -380,10 +377,6 @@ export default function AnalyticsDashboard() {
             <span className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-full bg-[#60A5FA]" />
               Measured Average
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="w-3 h-0.5 border-t border-dashed border-[#34D399]" />
-              80% Policy Target
             </span>
           </div>
         </div>
@@ -429,18 +422,6 @@ export default function AnalyticsDashboard() {
                     </g>
                   );
                 })}
-
-                {/* Target line at 80% */}
-                <line
-                  x1={paddingX}
-                  y1={targetLineY}
-                  x2={paddingX + plotWidth}
-                  y2={targetLineY}
-                  stroke="var(--success)"
-                  strokeWidth="1.2"
-                  strokeDasharray="4 4"
-                  opacity="0.8"
-                />
 
                 {/* Area fill under curve */}
                 <path d={areaD} fill="url(#complianceGradient)" />
@@ -499,8 +480,14 @@ export default function AnalyticsDashboard() {
           </div>
         ) : (
           <div className="p-8 text-center bg-[#0E1428] border border-[#1F2A4A] rounded-xl text-xs text-[#7C88AB] space-y-1">
-            <p className="font-medium text-[#AAB4D0]">Initial Single-Point Baseline Recorded</p>
-            <p className="text-[11px]">Trend lines will automatically plot across multiple draft scanning dates.</p>
+            <p className="font-medium text-[#AAB4D0]">
+              {points.length === 1 ? 'Initial Single-Point Baseline Recorded' : 'No Trend Data Available'}
+            </p>
+            <p className="text-[11px]">
+              {points.length === 1
+                ? 'Trend lines will appear after scans are recorded on additional dates.'
+                : 'Compliance trends will appear after valid scan data is recorded.'}
+            </p>
           </div>
         )}
       </div>
@@ -676,27 +663,29 @@ export default function AnalyticsDashboard() {
           <div className="bg-[#111830] border border-[#1F2A4A] rounded-2xl p-5 space-y-3 shadow-xl">
             <h4 className="text-xs font-bold uppercase tracking-wider text-[#7C88AB] flex items-center justify-between">
               <span>Overall Resolution Mix</span>
-              <span className="font-mono text-[10px] text-[#AAB4D0]">{totalResolutions} Decisions</span>
+              <span className="font-mono text-[10px] text-[#AAB4D0]">
+                {totalResolutions === null ? 'Not reported' : `${totalResolutions} Decisions`}
+              </span>
             </h4>
 
             <div className="grid grid-cols-3 gap-2.5 text-center text-xs">
               <div className="bg-[#0E1428] p-3 rounded-xl border border-[#34D399]/20 space-y-0.5">
                 <div className="text-lg font-bold font-mono text-[#34D399]">
-                  {resolution_stats.accepted || 0}
+                  {resolutionCounts.accepted ?? '—'}
                 </div>
                 <div className="text-[10px] text-[#7C88AB] uppercase font-semibold">Accepted</div>
               </div>
 
               <div className="bg-[#0E1428] p-3 rounded-xl border border-[#60A5FA]/20 space-y-0.5">
                 <div className="text-lg font-bold font-mono text-[#60A5FA]">
-                  {resolution_stats.edited || 0}
+                  {resolutionCounts.edited ?? '—'}
                 </div>
                 <div className="text-[10px] text-[#7C88AB] uppercase font-semibold">Edited</div>
               </div>
 
               <div className="bg-[#0E1428] p-3 rounded-xl border border-[#FBBF24]/20 space-y-0.5">
                 <div className="text-lg font-bold font-mono text-[#FBBF24]">
-                  {resolution_stats.dismissed || 0}
+                  {resolutionCounts.dismissed ?? '—'}
                 </div>
                 <div className="text-[10px] text-[#7C88AB] uppercase font-semibold">Dismissed</div>
               </div>

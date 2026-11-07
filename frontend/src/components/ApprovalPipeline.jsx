@@ -12,7 +12,7 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
   const [currentDraft, setCurrentDraft] = useState(null);
   const [comments, setComments] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
-  const [activeGuidelineVersion, setActiveGuidelineVersion] = useState('v3.2');
+  const [activeGuidelineVersion, setActiveGuidelineVersion] = useState(null);
   const [newComment, setNewComment] = useState('');
   const [decisionModal, setDecisionModal] = useState(null);
   const [decisionComment, setDecisionComment] = useState('');
@@ -28,13 +28,7 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
   async function loadActiveGuideline() {
     try {
       const rules = await api.getRules();
-      if (rules && rules.length > 0 && rules[0].version_id) {
-        const raw = rules[0].version_id;
-        const formatted = raw.startsWith('gv_')
-          ? raw.replace(/^gv_v?/, 'v').replace(/_/g, '.')
-          : raw;
-        setActiveGuidelineVersion(formatted);
-      }
+      setActiveGuidelineVersion(rules?.find(rule => rule.guideline_version)?.guideline_version || null);
     } catch (e) {
       console.error(e);
     }
@@ -190,7 +184,9 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
       author: currentDraft.author_name || "Creator",
       current_status: currentDraft.status,
       compliance_score: latestRev ? `${latestRev.compliance_score}%` : 'Not scanned',
-      guideline_version_used: `Inkloom Master Guidelines ${activeGuidelineVersion} (Active)`,
+      guideline_version_used: activeGuidelineVersion
+        ? `Inkloom Master Guidelines ${activeGuidelineVersion} (Active)`
+        : 'Active guideline version unavailable',
       sign_off_status: signOffRecord
         ? "Signed"
         : (currentDraft.status === 'In Revision' ? 'Unsigned (In Revision)' : `Unsigned (${currentDraft.status})`),
@@ -371,7 +367,7 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
               <div>
                 <div className="flex items-center space-x-2">
                   <span className="text-xs font-mono bg-[#4F6BED]/10 text-[#60A5FA] border border-[#4F6BED]/20 px-2 py-0.5 rounded-lg">
-                    Guideline {activeGuidelineVersion}
+                    Guideline {activeGuidelineVersion || 'version unavailable'}
                   </span>
                   <span className={`text-xs px-2.5 py-0.5 rounded-full font-semibold border ${
                     statusStyles[currentDraft.status] || 'bg-[#7C88AB]/15 text-[#AAB4D0] border-[#7C88AB]/30'
@@ -902,7 +898,9 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
                 <div className="col-span-2">
                   <span className="text-[#7C88AB] block text-[10px] uppercase font-semibold">Active Guideline Version</span>
                   <span className="text-[#AAB4D0] font-mono text-[11px]">
-                    Inkloom Master Guidelines {activeGuidelineVersion} (Active)
+                    {activeGuidelineVersion
+                      ? `Inkloom Master Guidelines ${activeGuidelineVersion} (Active)`
+                      : 'Active guideline version unavailable'}
                   </span>
                 </div>
                 <div className="col-span-2 flex items-center justify-between text-[11px] text-[#7C88AB] pt-1 border-t border-[#1F2A4A]/60 font-mono">
