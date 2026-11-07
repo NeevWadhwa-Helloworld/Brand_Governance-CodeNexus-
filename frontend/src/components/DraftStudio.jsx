@@ -264,6 +264,23 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
       if (onDraftUpdated) onDraftUpdated();
     } catch (e) {
       console.error(e);
+      if (e.draftId) {
+        setIsCreatingNew(false);
+        setNewTitle('');
+        setNewContent('');
+        setSelectedFileWithPreview(null);
+        setMediaTranscript('');
+        await loadDrafts();
+        setSelectedDraftId(e.draftId);
+        if (onDraftUpdated) onDraftUpdated();
+        if (showToast) {
+          showToast(
+            'Draft saved, but its initial scan failed. Open the draft and select Re-scan.',
+            'warning'
+          );
+        }
+        return;
+      }
       const message = `Could not create and scan draft: ${e.message}`;
       setCreateDraftError(message);
       if (showToast) showToast(message, "error");

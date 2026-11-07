@@ -1,10 +1,12 @@
 import uuid
 import shutil
 import json
+import logging
 from pathlib import Path
 from datetime import datetime
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Header, Depends
+from fastapi.responses import JSONResponse
 from backend.database import get_db
 from backend.config import settings
 from backend.schemas import (
@@ -17,6 +19,7 @@ from backend.dependencies import require_role, get_current_user, organization_sc
 from backend.services.integration_adapters import LocalIntegrationAdapter
 
 router = APIRouter(prefix="/api/drafts", tags=["drafts"])
+logger = logging.getLogger(__name__)
 
 def _with_media_metadata(draft: dict) -> dict:
     value = draft.get("media_metadata")
@@ -100,7 +103,20 @@ async def create_draft(
     AuditService.log(org_id, x_user_id, "draft_created", {"title": draft_in.title, "type": "text"}, draft_id=draft_id)
 
     # Immediately run initial automated scan
-    await Scanner.scan_draft(draft_id, x_user_id, content_text=content_text)
+    try:
+        await Scanner.scan_draft(draft_id, x_user_id, content_text=content_text)
+    except Exception:
+        logger.exception("Initial scan failed for saved draft %s", draft_id)
+        return JSONResponse(
+            status_code=503,
+            content={
+                "detail": (
+                    "The draft was saved, but its initial scan failed. "
+                    "Open it in Draft Studio and select Re-scan."
+                ),
+                "draft_id": draft_id,
+            },
+        )
 
     return get_draft(draft_id, current_user)
 
