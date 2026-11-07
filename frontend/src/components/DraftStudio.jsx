@@ -12,6 +12,7 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
   const [currentDraft, setCurrentDraft] = useState(null);
   const [loading, setLoading] = useState(false);
   const [scanning, setScanning] = useState(false);
+  const [submittingForApproval, setSubmittingForApproval] = useState(false);
   const [activeDismissModal, setActiveDismissModal] = useState(null);
   const [dismissReason, setDismissReason] = useState('');
   const [editingFlagId, setEditingFlagId] = useState(null);
@@ -21,6 +22,10 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
   const [newContent, setNewContent] = useState('');
   const [newType, setNewType] = useState('text');
   const [selectedFile, setSelectedFile] = useState(null);
+  const [selectedFilePreviewUrl, setSelectedFilePreviewUrl] = useState(null);
+  const selectedFilePreviewUrlRef = useRef(null);
+  const [creatingDraft, setCreatingDraft] = useState(false);
+  const [createDraftError, setCreateDraftError] = useState('');
   const [mediaTranscript, setMediaTranscript] = useState('');
   const [isEditingDraft, setIsEditingDraft] = useState(false);
   const [editDraftText, setEditDraftText] = useState('');
@@ -40,6 +45,22 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
       loadDraftDetails(selectedDraftId);
     }
   }, [selectedDraftId]);
+
+  useEffect(() => () => {
+    if (selectedFilePreviewUrlRef.current) {
+      URL.revokeObjectURL(selectedFilePreviewUrlRef.current);
+    }
+  }, []);
+
+  function setSelectedFileWithPreview(file) {
+    if (selectedFilePreviewUrlRef.current) {
+      URL.revokeObjectURL(selectedFilePreviewUrlRef.current);
+    }
+    const previewUrl = file ? URL.createObjectURL(file) : null;
+    selectedFilePreviewUrlRef.current = previewUrl;
+    setSelectedFile(file);
+    setSelectedFilePreviewUrl(previewUrl);
+  }
 
   async function loadDrafts() {
     setLoading(true);
@@ -78,7 +99,7 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
       if (showToast) showToast("Draft re-scanned successfully!", "info");
     } catch (e) {
       console.error(e);
-      if (showToast) showToast("Scan failed", "error");
+      if (showToast) showToast(`Scan failed: ${e.message}`, "error");
     } finally {
       setScanning(false);
     }
@@ -136,6 +157,7 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
 
   async function handleSubmitForApproval() {
     if (!currentDraft) return;
+    setSubmittingForApproval(true);
     try {
       await api.submitForApproval(currentDraft.id, currentUser.id);
       await loadDraftDetails(currentDraft.id);
@@ -144,12 +166,16 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
       if (showToast) showToast("Draft submitted for managerial approval!", "success");
     } catch (e) {
       console.error(e);
-      if (showToast) showToast("Failed to submit draft", "error");
+      if (showToast) showToast(`Failed to submit draft: ${e.message}`, "error");
+    } finally {
+      setSubmittingForApproval(false);
     }
   }
 
   async function handleCreateDraft(e) {
     e.preventDefault();
+    setCreatingDraft(true);
+    setCreateDraftError('');
     try {
       if (newType === 'text') {
         const created = await api.createDraft({
@@ -170,7 +196,7 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
         const created = await api.uploadImageDraft(formData, currentUser.id);
         setIsCreatingNew(false);
         setNewTitle('');
-        setSelectedFile(null);
+        setSelectedFileWithPreview(null);
         await loadDrafts();
         setSelectedDraftId(created.id);
       } else {
@@ -184,13 +210,18 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
         setIsCreatingNew(false);
         setNewTitle('');
         setMediaTranscript('');
-        setSelectedFile(null);
+        setSelectedFileWithPreview(null);
         await loadDrafts();
         setSelectedDraftId(created.id);
       }
       if (onDraftUpdated) onDraftUpdated();
     } catch (e) {
       console.error(e);
+      const message = `Could not create and scan draft: ${e.message}`;
+      setCreateDraftError(message);
+      if (showToast) showToast(message, "error");
+    } finally {
+      setCreatingDraft(false);
     }
   }
 
@@ -356,7 +387,11 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
             <div className="grid grid-cols-2 gap-1.5 text-xs">
               <button
                 type="button"
-                onClick={() => setNewType('text')}
+                onClick={() => {
+                  setNewType('text');
+                  setSelectedFileWithPreview(null);
+                  setCreateDraftError('');
+                }}
                 className={`py-1.5 px-2 rounded-lg border text-center transition-all flex items-center justify-center gap-1.5 ${
                   newType === 'text'
                     ? 'bg-[#172040] border-[#4F6BED] text-[#E8ECF8] font-semibold shadow-sm'
@@ -368,7 +403,11 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
               </button>
               <button
                 type="button"
-                onClick={() => setNewType('image')}
+                onClick={() => {
+                  setNewType('image');
+                  setSelectedFileWithPreview(null);
+                  setCreateDraftError('');
+                }}
                 className={`py-1.5 px-2 rounded-lg border text-center transition-all flex items-center justify-center gap-1.5 ${
                   newType === 'image'
                     ? 'bg-[#172040] border-[#4F6BED] text-[#E8ECF8] font-semibold shadow-sm'
@@ -380,7 +419,11 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
               </button>
               <button
                 type="button"
-                onClick={() => setNewType('audio')}
+                onClick={() => {
+                  setNewType('audio');
+                  setSelectedFileWithPreview(null);
+                  setCreateDraftError('');
+                }}
                 className={`py-1.5 px-2 rounded-lg border text-center transition-all flex items-center justify-center gap-1.5 ${
                   newType === 'audio'
                     ? 'bg-[#172040] border-[#4F6BED] text-[#E8ECF8] font-semibold shadow-sm'
@@ -392,7 +435,11 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
               </button>
               <button
                 type="button"
-                onClick={() => setNewType('video')}
+                onClick={() => {
+                  setNewType('video');
+                  setSelectedFileWithPreview(null);
+                  setCreateDraftError('');
+                }}
                 className={`py-1.5 px-2 rounded-lg border text-center transition-all flex items-center justify-center gap-1.5 ${
                   newType === 'video'
                     ? 'bg-[#172040] border-[#4F6BED] text-[#E8ECF8] font-semibold shadow-sm'
@@ -423,22 +470,54 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
                 required
               />
             ) : newType === 'image' ? (
-              <input
-                type="file"
-                accept="image/*"
-                onChange={e => setSelectedFile(e.target.files[0])}
-                className="w-full text-xs text-[#AAB4D0] file:mr-2 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-xs file:bg-[#4F6BED] file:text-white file:font-medium hover:file:bg-[#6479F2] file:cursor-pointer"
-                required
-              />
+              <>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={e => {
+                    setSelectedFileWithPreview(e.target.files?.[0] || null);
+                    setCreateDraftError('');
+                  }}
+                  className="w-full text-xs text-[#AAB4D0] file:mr-2 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-xs file:bg-[#4F6BED] file:text-white file:font-medium hover:file:bg-[#6479F2] file:cursor-pointer"
+                  required
+                />
+                {selectedFile && selectedFilePreviewUrl && (
+                  <div className="rounded-xl border border-[#1F2A4A] bg-[#0E1428] p-2.5 space-y-2">
+                    <img
+                      src={selectedFilePreviewUrl}
+                      alt={`Preview of ${selectedFile.name}`}
+                      className="max-h-48 w-full rounded-lg object-contain"
+                    />
+                    <p className="truncate text-[11px] text-[#AAB4D0]" title={selectedFile.name}>
+                      Preview: {selectedFile.name}
+                    </p>
+                  </div>
+                )}
+              </>
             ) : (
               <div className="space-y-2">
                 <input
                   type="file"
                   accept={newType === 'audio' ? 'audio/*' : 'video/*'}
-                  onChange={e => setSelectedFile(e.target.files[0])}
+                  onChange={e => {
+                    setSelectedFileWithPreview(e.target.files?.[0] || null);
+                    setCreateDraftError('');
+                  }}
                   className="w-full text-xs text-[#AAB4D0] file:mr-2 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-xs file:bg-[#4F6BED] file:text-white file:font-medium hover:file:bg-[#6479F2] file:cursor-pointer"
                   required
                 />
+                {selectedFile && selectedFilePreviewUrl && (
+                  <div className="rounded-xl border border-[#1F2A4A] bg-[#0E1428] p-2.5 space-y-2">
+                    {newType === 'audio' ? (
+                      <audio controls src={selectedFilePreviewUrl} className="w-full" />
+                    ) : (
+                      <video controls src={selectedFilePreviewUrl} className="max-h-48 w-full rounded-lg" />
+                    )}
+                    <p className="truncate text-[11px] text-[#AAB4D0]" title={selectedFile.name}>
+                      Preview: {selectedFile.name}
+                    </p>
+                  </div>
+                )}
                 <textarea
                   placeholder="Optional transcript or captions for policy scanning..."
                   value={mediaTranscript}
@@ -449,13 +528,23 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
               </div>
             )}
 
+            {createDraftError && (
+              <p role="alert" className="rounded-lg border border-[#F87171]/40 bg-[#F87171]/10 p-2.5 text-xs text-[#FCA5A5]">
+                {createDraftError}
+              </p>
+            )}
+
             <button
               type="submit"
-              className="w-full bg-[#4F6BED] hover:bg-[#6479F2] text-white py-2 rounded-xl text-xs font-semibold shadow-md shadow-[#4F6BED]/20 transition-all flex items-center justify-center gap-1.5"
+              disabled={creatingDraft}
+              className="w-full bg-[#4F6BED] hover:bg-[#6479F2] text-white py-2 rounded-xl text-xs font-semibold shadow-md shadow-[#4F6BED]/20 transition-all flex items-center justify-center gap-1.5 disabled:cursor-wait disabled:opacity-60"
             >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>Scan & Submit Draft</span>
+              {creatingDraft ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+              <span>{creatingDraft ? 'Uploading & scanning...' : 'Create & Scan Draft'}</span>
             </button>
+            <p className="text-center text-[10px] text-[#7C88AB]">
+              This creates a scanned draft. Submit it for approval from the draft workspace.
+            </p>
           </form>
         )}
 
@@ -571,12 +660,16 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
                   {currentDraft.status !== 'Approved' && (
                     <button
                       onClick={handleSubmitForApproval}
-                      disabled={needsPolicyReview}
+                      disabled={needsPolicyReview || submittingForApproval}
                       className="flex items-center space-x-1.5 bg-[#4F6BED] hover:bg-[#6479F2] text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow-md shadow-[#4F6BED]/20 transition-all disabled:cursor-not-allowed disabled:opacity-50"
                       title={needsPolicyReview ? latestRev.policy_coverage_reason : 'Submit for managerial approval'}
                     >
-                      <Send className="w-3.5 h-3.5" />
-                      <span>Submit for Approval</span>
+                      {submittingForApproval ? (
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Send className="w-3.5 h-3.5" />
+                      )}
+                      <span>{submittingForApproval ? 'Submitting...' : 'Submit for Approval'}</span>
                     </button>
                   )}
                 </div>
