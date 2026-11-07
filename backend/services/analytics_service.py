@@ -69,7 +69,7 @@ class AnalyticsService:
                 JOIN revisions r ON f.revision_id = r.id
                 JOIN drafts d ON r.draft_id = d.id
                 WHERE d.org_id = ?
-                GROUP BY f.span, f.rule_id
+                GROUP BY f.span, f.rule_id, f.category
                 ORDER BY occurrences DESC
                 LIMIT 6
             """, (org_id,))
