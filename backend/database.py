@@ -25,7 +25,7 @@ class PostgresCursor:
 
     @staticmethod
     def _sql(statement: str) -> str:
-        return statement.replace("?", "%s")
+        return statement.replace("%", "%%").replace("?", "%s")
 
     def execute(self, statement, params=None):
         self._cursor.execute(self._sql(statement), params or ())
