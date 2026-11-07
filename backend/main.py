@@ -46,16 +46,6 @@ async def security_middleware(request: Request, call_next):
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
 
-# Keep CORS outside host and application middleware so API errors still include
-# the headers required by the deployed frontend.
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS or ["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 # Mount static files
 static_dir = settings.STATIC_ROOT
 static_dir.mkdir(parents=True, exist_ok=True)
@@ -104,6 +94,15 @@ def system_info():
             "immutable_audit_logging": True
         }
     }
+
+# Wrap the complete ASGI app so CORS headers are also applied to unhandled 500s.
+app = CORSMiddleware(
+    app=app,
+    allow_origins=settings.CORS_ORIGINS or ["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 if __name__ == "__main__":
     uvicorn.run("backend.main:app", host=settings.HOST, port=settings.PORT, reload=settings.DEBUG)
