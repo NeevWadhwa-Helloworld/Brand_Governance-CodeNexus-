@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { api, mediaUrl } from '../api';
 import {
   CheckCircle2, AlertOctagon, MessageSquare, History, FileCheck,
@@ -21,6 +21,7 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
   const [statusFilter, setStatusFilter] = useState('all');
   const [showCertModal, setShowCertModal] = useState(false);
   const [failedMediaDraftId, setFailedMediaDraftId] = useState(null);
+  const mediaElementRef = useRef(null);
 
   const mediaLoadError = failedMediaDraftId === currentDraft?.id;
 
@@ -98,8 +99,17 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
 
   async function handleDecision(decision) {
     if (!currentDraft) return;
+    if (decision === 'Changes Requested' && !decisionComment.trim()) {
+      if (showToast) showToast('Add specific feedback before requesting changes.', 'warning');
+      return;
+    }
     try {
-      await api.decideApproval(currentDraft.id, decision, decisionComment || `Managerial decision: ${decision}`, currentUser.id);
+      await api.decideApproval(
+        currentDraft.id,
+        decision,
+        decisionComment.trim() || `Managerial decision: ${decision}`,
+        currentUser.id
+      );
       setDecisionModal(null);
       setDecisionComment('');
       await loadDraftDetails(currentDraft.id);
@@ -136,6 +146,10 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
 
   const latestRev = currentDraft?.latest_revision;
   const flags = latestRev?.flags || [];
+  const reviewText = latestRev?.content_text || (
+    currentDraft?.content_type === 'text' ? currentDraft.content_ref : ''
+  );
+  const mediaAnalysis = latestRev?.media_analysis || {};
   const acceptedFlags = flags.filter(f => f.resolution === 'accepted' || f.resolution === 'edited');
   const dismissedFlags = flags.filter(f => f.resolution === 'dismissed');
   const issueCount = flags.length;
@@ -365,7 +379,9 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
                     {currentDraft.status}
                   </span>
                   <span className="text-xs font-mono text-[#2DD4BF] bg-[#2DD4BF]/10 px-2 py-0.5 rounded-lg border border-[#2DD4BF]/20">
-                    {currentDraft.latest_revision?.compliance_score ?? 100}% alignment
+                    {currentDraft.latest_revision
+                      ? `${currentDraft.latest_revision.compliance_score}% alignment`
+                      : 'Not scanned'}
                   </span>
                 </div>
                 <h2 className="text-base sm:text-lg font-bold text-[#E8ECF8] mt-2">
@@ -425,11 +441,18 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
                 <textarea
                   value={decisionComment}
                   onChange={e => setDecisionComment(e.target.value)}
-                  placeholder="e.g., Content verified against Fact Sheet v3. Approved for publication."
+                  placeholder={decisionModal === 'Changes Requested'
+                    ? 'List the specific edits needed, ideally referencing the text, frame, or timestamp.'
+                    : 'Optional sign-off note, e.g. verified against Fact Sheet v3.'}
                   rows={2}
                   autoFocus
                   className="w-full bg-[#111830] border border-[#1F2A4A] rounded-lg p-2.5 text-xs text-[#E8ECF8] placeholder-[#7C88AB] focus:outline-none focus:border-[#4F6BED] focus:ring-1 focus:ring-[#4F6BED]"
                 />
+                {decisionModal === 'Changes Requested' && (
+                  <p className="text-[11px] text-[#FBBF24]">
+                    Specific reviewer feedback is required so the creator knows what to change.
+                  </p>
+                )}
                 <div className="flex justify-end space-x-2 pt-1">
                   <button
                     type="button"
@@ -444,11 +467,12 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
                   <button
                     type="button"
                     onClick={() => handleDecision(decisionModal)}
+                    disabled={decisionModal === 'Changes Requested' && !decisionComment.trim()}
                     className={`px-4 py-1.5 rounded-lg text-xs font-bold text-white shadow-sm transition-all ${
                       decisionModal === 'Approved'
                         ? 'bg-[#34D399] hover:bg-[#10B981] text-[#0A0F1E]'
                         : 'bg-[#F87171] hover:bg-[#EF4444]'
-                    }`}
+                    } disabled:cursor-not-allowed disabled:opacity-50`}
                   >
                     Confirm {decisionModal}
                   </button>
@@ -461,9 +485,30 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
               <h3 className="text-xs font-bold uppercase tracking-wider text-text-muted">
                 Pre-Audited Content Snapshot (v{currentDraft.current_version})
               </h3>
-              <div className="bg-surface-subtle border border-border rounded-xl p-4 font-mono text-xs leading-relaxed text-text-primary max-h-80 overflow-y-auto">
+              <div className="bg-surface-subtle border border-border rounded-xl p-4 text-text-primary max-h-[34rem] overflow-y-auto">
                 {currentDraft.content_type === 'text' ? (
-                  currentDraft.latest_revision?.content_text || 'No text content available.'
+                  reviewText ? (
+                    <div className="space-y-3">
+                      {!latestRev && (
+                        <div className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[11px] text-warning">
+                          This draft has not completed a scan yet. Review the submitted text below before deciding.
+                        </div>
+                      )}
+                      <div className="rounded-lg border border-border/70 bg-canvas/40 p-4">
+                        <div className="mb-2 flex items-center justify-between gap-2 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                          <span>Submitted text</span>
+                          <span>Version {currentDraft.current_version}</span>
+                        </div>
+                        <p className="whitespace-pre-wrap break-words font-sans text-sm leading-7 text-text-primary">
+                          {reviewText}
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-warning/30 bg-warning/10 p-4 text-sm text-warning">
+                      No text snapshot is available for this draft. Ask the creator to resubmit the content before approval.
+                    </div>
+                  )
                 ) : currentDraft.content_type === 'image' ? (
                   (() => {
                     const isSampleAsset = Boolean(
@@ -473,7 +518,7 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
                       currentDraft.id === 'draft_banner_creative'
                     );
                     return (
-                      <div className="font-sans space-y-2">
+                      <div className="font-sans space-y-3">
                         {mediaLoadError ? (
                           <div className="flex flex-col items-center justify-center py-6 px-4 text-center space-y-2">
                             <ImageOff className="w-8 h-8 text-text-muted" />
@@ -503,12 +548,12 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
                             </div>
 
                             {/* Asset Preview Container */}
-                            <div className="w-full flex items-center justify-center bg-canvas/40 rounded-lg p-2.5 border border-border/40">
+                            <div className="w-full min-h-56 flex items-center justify-center bg-canvas/40 rounded-lg p-3 border border-border/40">
                               <img
                                 src={mediaUrl(currentDraft.content_ref || '/static/uploads/sample_banner.png')}
                                 alt={currentDraft.title || 'Draft Banner'}
                                 onError={() => setFailedMediaDraftId(currentDraft.id)}
-                                className="max-h-56 sm:max-h-60 w-auto object-contain rounded-md shadow-sm"
+                                className="max-h-[32rem] max-w-full w-auto object-contain rounded-md shadow-sm"
                               />
                             </div>
 
@@ -526,11 +571,22 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
                             )}
                           </div>
                         )}
+                        {currentDraft.media_metadata && (
+                          <ReviewMediaMetadata metadata={currentDraft.media_metadata} />
+                        )}
+                        {mediaAnalysis.ocr_text && (
+                          <div className="rounded-lg border border-border bg-canvas/40 p-3">
+                            <div className="mb-1 text-[11px] font-semibold text-text-primary">Text detected in image (OCR)</div>
+                            <p className="whitespace-pre-wrap break-words text-xs leading-relaxed text-text-secondary">
+                              {mediaAnalysis.ocr_text}
+                            </p>
+                          </div>
+                        )}
                       </div>
                     );
                   })()
                 ) : (
-                  <div className="space-y-2 p-2 font-sans">
+                  <div className="space-y-3 p-1 font-sans">
                     {mediaLoadError ? (
                       <div className="flex flex-col items-center justify-center py-6 px-4 text-center space-y-2">
                         <ImageOff className="w-8 h-8 text-text-muted" />
@@ -541,6 +597,7 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
                       </div>
                     ) : currentDraft.content_type === 'audio' ? (
                       <audio
+                        ref={mediaElementRef}
                         controls
                         src={mediaUrl(currentDraft.content_ref)}
                         onError={() => setFailedMediaDraftId(currentDraft.id)}
@@ -548,19 +605,79 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
                       />
                     ) : (
                       <video
+                        ref={mediaElementRef}
                         controls
                         src={mediaUrl(currentDraft.content_ref)}
                         onError={() => setFailedMediaDraftId(currentDraft.id)}
                         className="max-h-60 w-full rounded-lg"
                       />
                     )}
-                    <p className="text-[11px] text-warning">
-                      Media metadata is available. Transcript/caption policy coverage confirmed for reviewer decision.
-                    </p>
+                    {currentDraft.media_metadata && (
+                      <ReviewMediaMetadata metadata={currentDraft.media_metadata} />
+                    )}
+                    <ReviewMediaAnalysis
+                      analysis={mediaAnalysis}
+                      flags={flags}
+                      onSeek={time => {
+                        if (!mediaElementRef.current || !Number.isFinite(time)) return;
+                        mediaElementRef.current.currentTime = time;
+                        mediaElementRef.current.play().catch(() => {});
+                      }}
+                    />
                   </div>
                 )}
               </div>
             </div>
+
+            <section className="space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-text-muted">
+                  Scan findings for reviewer
+                </h3>
+                <span className="text-[10px] font-mono text-text-muted">{flags.length} finding(s)</span>
+              </div>
+              {!latestRev ? (
+                <p className="rounded-xl border border-warning/30 bg-warning/10 p-3 text-xs text-warning">
+                  No scan findings are available yet. Review the submitted asset manually; do not treat the absence of findings as proof of compliance.
+                </p>
+              ) : flags.length === 0 ? (
+                <p className="rounded-xl border border-border bg-surface-subtle p-3 text-xs text-text-secondary">
+                  No automated findings were recorded for this revision. Please complete the human review before sign-off.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {flags.map(flag => (
+                    <article key={flag.id} className="rounded-xl border border-border bg-surface-subtle p-3 space-y-1.5">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="rounded bg-primary/10 px-2 py-0.5 font-mono text-[10px] font-bold text-primary">
+                          {flag.rule_id}
+                        </span>
+                        <span className="text-[10px] uppercase text-text-muted">{flag.category}</span>
+                        <span className="ml-auto text-[10px] capitalize text-text-muted">{flag.resolution}</span>
+                      </div>
+                      {flag.span && (
+                        <p className="break-words rounded bg-canvas/50 px-2 py-1 font-mono text-xs text-text-primary">
+                          {flag.span}
+                        </p>
+                      )}
+                      <p className="text-xs leading-relaxed text-text-secondary">{flag.explanation}</p>
+                      {flag.fix && (
+                        <p className="text-xs text-text-secondary">
+                          Suggested change: <span className="font-medium text-text-primary">{flag.fix}</span>
+                        </p>
+                      )}
+                      {(Number.isFinite(flag.start_time) || Number.isInteger(flag.frame_number)) && (
+                        <p className="text-[10px] text-primary">
+                          {Number.isInteger(flag.frame_number) ? `Frame ${flag.frame_number}` : ''}
+                          {Number.isInteger(flag.frame_number) && Number.isFinite(flag.start_time) ? ' · ' : ''}
+                          {Number.isFinite(flag.start_time) ? `${flag.start_time.toFixed(2)}s` : ''}
+                        </p>
+                      )}
+                    </article>
+                  ))}
+                </div>
+              )}
+            </section>
 
             {/* AI Audit Trail (Flags accepted, edited, dismissed) */}
             <div className="space-y-3">
@@ -816,4 +933,119 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
       )}
     </div>
   );
-}
+  }
+
+  function ReviewMediaMetadata({ metadata }) {
+    const entries = Object.entries(metadata).filter(([, value]) => value !== null && value !== undefined);
+    if (!entries.length) return null;
+
+    return (
+      <div className="rounded-lg border border-border bg-canvas/40 p-3">
+        <h4 className="mb-2 text-[11px] font-semibold text-text-primary">Asset details</h4>
+        <dl className="grid grid-cols-1 gap-x-4 gap-y-1.5 sm:grid-cols-2">
+          {entries.map(([key, value]) => (
+            <div key={key} className="min-w-0 text-[11px]">
+              <dt className="inline capitalize text-text-muted">{key.replaceAll('_', ' ')}: </dt>
+              <dd className="inline break-words font-mono text-text-secondary">
+                {typeof value === 'object' ? JSON.stringify(value) : String(value)}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+    );
+  }
+
+  function ReviewMediaAnalysis({ analysis, flags, onSeek }) {
+    const missing = analysis.missing_capabilities || [];
+    const transcript = analysis.transcript || '';
+    const ocrText = analysis.ocr_text || '';
+    const frames = analysis.findings || [];
+    const timedFlags = flags.filter(flag => Number.isFinite(flag.start_time));
+
+    if (!analysis.extraction_status && !transcript && !ocrText && !frames.length) {
+      return (
+        <p className="rounded-lg border border-warning/30 bg-warning/10 p-3 text-xs text-warning">
+          No transcript or extraction report is available. Review the full media manually and add any required changes in your decision comment.
+        </p>
+      );
+    }
+
+    return (
+      <div className="space-y-3 rounded-lg border border-border bg-canvas/40 p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h4 className="text-[11px] font-semibold text-text-primary">Transcript and extraction evidence</h4>
+          <span className={`text-[10px] font-semibold ${missing.length ? 'text-warning' : 'text-success'}`}>
+            {analysis.extraction_status || 'status unavailable'}
+            {missing.length ? ` · Missing: ${missing.join(', ')}` : ''}
+          </span>
+        </div>
+        {transcript ? (
+          <div>
+            <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+              {analysis.transcript_segments?.length ? 'Transcript / captions' : 'Transcript'}
+            </div>
+            <p className="max-h-48 overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-border/70 bg-surface-subtle p-3 text-xs leading-relaxed text-text-primary">
+              {transcript}
+            </p>
+          </div>
+        ) : (
+          <p className="text-xs text-text-secondary">No transcript or captions were extracted.</p>
+        )}
+        {ocrText && (
+          <div>
+            <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+              Text detected in video frames
+            </div>
+            <p className="max-h-32 overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-border/70 bg-surface-subtle p-3 text-xs leading-relaxed text-text-primary">
+              {ocrText}
+            </p>
+          </div>
+        )}
+        {frames.length > 0 && (
+          <div className="space-y-1">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+              Sampled video frames ({frames.length})
+            </div>
+            {frames.map((frame, index) => (
+              <button
+                key={`${frame.frame_number ?? index}-${frame.timestamp_seconds ?? index}`}
+                type="button"
+                onClick={() => Number.isFinite(frame.timestamp_seconds) && onSeek(frame.timestamp_seconds)}
+                disabled={!Number.isFinite(frame.timestamp_seconds)}
+                className="block w-full rounded-lg border border-border/70 bg-surface-subtle px-2.5 py-2 text-left text-[11px] enabled:hover:border-primary disabled:cursor-default"
+                title={Number.isFinite(frame.timestamp_seconds) ? 'Seek video to this frame' : undefined}
+              >
+                <span className="font-semibold text-text-primary">Frame {frame.frame_number ?? index + 1}</span>
+                {Number.isFinite(frame.timestamp_seconds) && (
+                  <span className="ml-2 font-mono text-primary">{frame.timestamp_seconds.toFixed(2)}s</span>
+                )}
+                {frame.text && (
+                  <p className="mt-1 whitespace-pre-wrap break-words text-text-secondary">{frame.text}</p>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+        {timedFlags.length > 0 && (
+          <div className="space-y-1">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">Jump to flagged moments</div>
+            {timedFlags.map(flag => (
+              <button
+                key={flag.id}
+                type="button"
+                onClick={() => onSeek(flag.start_time)}
+                className="flex w-full items-center justify-between gap-2 rounded-lg border border-border bg-surface-subtle px-2.5 py-2 text-left text-xs hover:border-primary"
+                title="Seek the media player to this point"
+              >
+                <span className="min-w-0 truncate text-text-secondary">
+                  {flag.rule_id}: {flag.span || flag.explanation}
+                </span>
+                <span className="shrink-0 font-mono text-primary">{flag.start_time.toFixed(2)}s</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
