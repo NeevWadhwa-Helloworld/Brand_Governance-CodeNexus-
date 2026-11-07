@@ -190,6 +190,81 @@ async def upload_media_draft(
     )
     return get_draft(draft_id, current_user)
 
+@router.post("/{draft_id}/replace-media", response_model=DraftDetail)
+async def replace_draft_media(
+    draft_id: str,
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user),
+):
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT * FROM drafts WHERE id = ? AND org_id = ?",
+            (draft_id, current_user["org_id"]),
+        )
+        draft = cursor.fetchone()
+        if not draft:
+            raise HTTPException(status_code=404, detail="Draft not found")
+        if current_user["role"] != "admin" and draft["author_id"] != current_user["id"]:
+            raise HTTPException(
+                status_code=403,
+                detail="Only the draft creator or an administrator can replace its media.",
+            )
+        if draft["content_type"] not in {"image", "audio", "video"}:
+            raise HTTPException(status_code=409, detail="This draft does not contain a media asset.")
+        new_version = draft["current_version"] + 1
+        prior_content_text = None
+        if draft["content_type"] in {"audio", "video"}:
+            cursor.execute("""
+                SELECT content_text FROM revisions
+                WHERE draft_id = ? AND version_num = ?
+                ORDER BY created_at DESC, id DESC
+                LIMIT 1
+            """, (draft_id, draft["current_version"]))
+            prior_revision = cursor.fetchone()
+            if prior_revision:
+                prior_content_text = prior_revision["content_text"]
+
+    suffix = Path(file.filename or "").suffix or ".bin"
+    saved_filename = f"{uuid.uuid4()}{suffix}"
+    destination = settings.STATIC_UPLOAD_DIR / saved_filename
+    try:
+        with destination.open("wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        metadata = LocalIntegrationAdapter.inspect_media(str(destination), draft["content_type"])
+    except (FileNotFoundError, ValueError, OSError) as exc:
+        destination.unlink(missing_ok=True)
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    relative_url = f"/static/uploads/{saved_filename}"
+    now = datetime.utcnow().isoformat() + "Z"
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE drafts
+            SET content_ref = ?, media_metadata = ?, current_version = ?,
+                status = 'In Revision', updated_at = ?
+            WHERE id = ? AND org_id = ?
+        """, (
+            relative_url, json.dumps(metadata), new_version, now,
+            draft_id, current_user["org_id"],
+        ))
+
+    AuditService.log(
+        draft["org_id"],
+        current_user["id"],
+        "draft_media_replaced",
+        {"media_type": draft["content_type"], "filename": file.filename},
+        draft_id=draft_id,
+    )
+    await Scanner.scan_draft(
+        draft_id,
+        current_user["id"],
+        content_text=prior_content_text,
+        image_path=str(destination),
+    )
+    return get_draft(draft_id, current_user)
+
 @router.get("/{draft_id}", response_model=DraftDetail)
 def get_draft(draft_id: str, current_user: dict = Depends(get_current_user)):
     with get_db() as conn:
@@ -278,6 +353,14 @@ async def scan_draft_endpoint(draft_id: str, current_user: dict = Depends(get_cu
             raise HTTPException(status_code=404, detail="Draft not found")
     try:
         return await Scanner.scan_draft(draft_id, x_user_id)
+    except FileNotFoundError as e:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "The uploaded media file is no longer available on the server. "
+                "The draft creator must upload a replacement asset before it can be scanned."
+            ),
+        ) from e
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

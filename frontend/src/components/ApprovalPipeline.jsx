@@ -20,9 +20,9 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [showCertModal, setShowCertModal] = useState(false);
-  const [failedImageDraftId, setFailedImageDraftId] = useState(null);
+  const [failedMediaDraftId, setFailedMediaDraftId] = useState(null);
 
-  const imageLoadError = failedImageDraftId === (currentDraft?.id || 'default');
+  const mediaLoadError = failedMediaDraftId === currentDraft?.id;
 
   async function loadActiveGuideline() {
     try {
@@ -474,12 +474,12 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
                     );
                     return (
                       <div className="font-sans space-y-2">
-                        {imageLoadError ? (
+                        {mediaLoadError ? (
                           <div className="flex flex-col items-center justify-center py-6 px-4 text-center space-y-2">
                             <ImageOff className="w-8 h-8 text-text-muted" />
                             <div className="text-xs font-semibold text-text-primary">Visual Asset Preview Unavailable</div>
                             <p className="text-[11px] text-text-secondary max-w-xs">
-                              Unable to load creative asset file. The multimodal compliance report remains active below.
+                              The server no longer has this uploaded file. Ask the creator to replace it from Draft Studio; this preview cannot restore the original.
                             </p>
                           </div>
                         ) : (
@@ -507,7 +507,7 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
                               <img
                                 src={mediaUrl(currentDraft.content_ref || '/static/uploads/sample_banner.png')}
                                 alt={currentDraft.title || 'Draft Banner'}
-                                onError={() => setFailedImageDraftId(currentDraft?.id || 'default')}
+                                onError={() => setFailedMediaDraftId(currentDraft.id)}
                                 className="max-h-56 sm:max-h-60 w-auto object-contain rounded-md shadow-sm"
                               />
                             </div>
@@ -531,10 +531,28 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
                   })()
                 ) : (
                   <div className="space-y-2 p-2 font-sans">
-                    {currentDraft.content_type === 'audio' ? (
-                      <audio controls src={mediaUrl(currentDraft.content_ref)} className="w-full" />
+                    {mediaLoadError ? (
+                      <div className="flex flex-col items-center justify-center py-6 px-4 text-center space-y-2">
+                        <ImageOff className="w-8 h-8 text-text-muted" />
+                        <div className="text-xs font-semibold text-text-primary">Uploaded asset is unavailable</div>
+                        <p className="text-[11px] text-text-secondary max-w-xs">
+                          Ask the creator to upload a replacement from Draft Studio. The original file is not available on the server.
+                        </p>
+                      </div>
+                    ) : currentDraft.content_type === 'audio' ? (
+                      <audio
+                        controls
+                        src={mediaUrl(currentDraft.content_ref)}
+                        onError={() => setFailedMediaDraftId(currentDraft.id)}
+                        className="w-full"
+                      />
                     ) : (
-                      <video controls src={mediaUrl(currentDraft.content_ref)} className="max-h-60 w-full rounded-lg" />
+                      <video
+                        controls
+                        src={mediaUrl(currentDraft.content_ref)}
+                        onError={() => setFailedMediaDraftId(currentDraft.id)}
+                        className="max-h-60 w-full rounded-lg"
+                      />
                     )}
                     <p className="text-[11px] text-warning">
                       Media metadata is available. Transcript/caption policy coverage confirmed for reviewer decision.

@@ -14,7 +14,10 @@
 
 ## Release blockers
 
-1. Replace local filesystem uploads with object storage and signed URLs.
+1. Replace local filesystem uploads with object storage and signed URLs. Until then,
+   configure `STATIC_ROOT` to a mounted persistent disk; Render Free filesystems are
+   ephemeral, so an asset lost from the current deployment must be re-uploaded from
+   its original source.
 2. Move scanning and transcription/OCR into background jobs with progress and retry states.
 3. Run the embedding backfill and evaluate retrieval quality before relying on vector similarity as the primary retriever.
 4. Add TLS termination, secret management, encrypted backups, retention/deletion policies, rate limits, and MIME/type validation.

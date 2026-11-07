@@ -3,11 +3,14 @@ import { api, mediaUrl } from '../api';
 import {
   Sparkles, Check, X, Edit3, Send, RefreshCw, AlertTriangle,
   CheckCircle2, FileText, Image as ImageIcon, History,
-  TestTube2, ImageOff
+  TestTube2, ImageOff, MessageSquare, Upload
 } from 'lucide-react';
 
 export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) {
   const [drafts, setDrafts] = useState([]);
+  const [comments, setComments] = useState([]);
+  const [commentsLoading, setCommentsLoading] = useState(false);
+  const [commentsError, setCommentsError] = useState('');
   const [selectedDraftId, setSelectedDraftId] = useState(null);
   const [currentDraft, setCurrentDraft] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -31,10 +34,12 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
   const [editDraftText, setEditDraftText] = useState('');
   const [activeFlagId, setActiveFlagId] = useState(null);
   const [categoryFilter, setCategoryFilter] = useState('all');
-  const [failedImageDraftId, setFailedImageDraftId] = useState(null);
+  const [failedMediaDraftId, setFailedMediaDraftId] = useState(null);
+  const [replacementFile, setReplacementFile] = useState(null);
+  const [replacingMedia, setReplacingMedia] = useState(false);
   const mediaElementRef = useRef(null);
 
-  const imageLoadError = failedImageDraftId === (currentDraft?.id || 'default');
+  const mediaLoadError = failedMediaDraftId === currentDraft?.id;
 
   useEffect(() => {
     loadDrafts();
@@ -43,7 +48,13 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
   useEffect(() => {
     if (selectedDraftId) {
       loadDraftDetails(selectedDraftId);
+      loadComments(selectedDraftId);
     }
+  }, [selectedDraftId]);
+
+  useEffect(() => {
+    setFailedMediaDraftId(null);
+    setReplacementFile(null);
   }, [selectedDraftId]);
 
   useEffect(() => () => {
@@ -86,6 +97,41 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
       }
     } catch (e) {
       console.error(e);
+    }
+  }
+
+  async function loadComments(id) {
+    setComments([]);
+    setCommentsLoading(true);
+    setCommentsError('');
+    try {
+      setComments(await api.getComments(id));
+    } catch (e) {
+      console.error(e);
+      setCommentsError(e.message || 'Could not load reviewer feedback.');
+    } finally {
+      setCommentsLoading(false);
+    }
+  }
+
+  async function handleReplaceMedia() {
+    if (!currentDraft || !replacementFile) return;
+    setReplacingMedia(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', replacementFile);
+      const updated = await api.replaceDraftMedia(currentDraft.id, formData);
+      setCurrentDraft(updated);
+      setReplacementFile(null);
+      setFailedMediaDraftId(null);
+      await loadDrafts();
+      if (onDraftUpdated) onDraftUpdated();
+      if (showToast) showToast('Replacement asset uploaded and scanned.', 'success');
+    } catch (e) {
+      console.error(e);
+      if (showToast) showToast(`Could not replace asset: ${e.message}`, 'error');
+    } finally {
+      setReplacingMedia(false);
     }
   }
 
@@ -162,6 +208,7 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
       await api.submitForApproval(currentDraft.id, currentUser.id);
       await loadDraftDetails(currentDraft.id);
       await loadDrafts();
+      await loadComments(currentDraft.id);
       if (onDraftUpdated) onDraftUpdated();
       if (showToast) showToast("Draft submitted for managerial approval!", "success");
     } catch (e) {
@@ -231,6 +278,45 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
   const resolvedFlags = flags.filter(f => f.resolution !== 'pending');
   const complianceScore = latestRev?.compliance_score ?? 100;
   const needsPolicyReview = latestRev?.policy_coverage_status === 'needs_review';
+  const latestThreadDecision = comments.slice().reverse().find(
+    comment => ['changes_requested', 'resubmitted', 'approved'].includes(comment.decision)
+  );
+  const latestRequestedChange = latestThreadDecision?.decision === 'changes_requested'
+    ? latestThreadDecision
+    : null;
+  const canReplaceMedia = currentUser?.role === 'admin' ||
+    (currentUser?.role === 'creator' && currentDraft?.author_id === currentUser?.id);
+
+  const renderMissingMedia = () => (
+    <div className="flex flex-col items-center justify-center py-6 px-4 text-center space-y-3">
+      <ImageOff className="w-8 h-8 text-text-muted" />
+      <div className="text-xs font-semibold text-text-primary">Uploaded asset is unavailable</div>
+      <p className="text-[11px] text-text-secondary max-w-sm">
+        The server no longer has this file. The original cannot be restored from the preview; upload the original again to create a new scanned revision.
+      </p>
+      {canReplaceMedia ? (
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          <input
+            type="file"
+            accept={currentDraft?.content_type === 'image' ? 'image/*' : currentDraft?.content_type === 'audio' ? 'audio/*' : 'video/*'}
+            onChange={event => setReplacementFile(event.target.files?.[0] || null)}
+            className="max-w-full text-[11px] text-text-secondary file:mr-2 file:rounded-lg file:border-0 file:bg-primary file:px-2.5 file:py-1.5 file:text-[11px] file:font-semibold file:text-white"
+          />
+          <button
+            type="button"
+            onClick={handleReplaceMedia}
+            disabled={!replacementFile || replacingMedia}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-[11px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {replacingMedia ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+            {replacingMedia ? 'Uploading & scanning...' : 'Upload replacement'}
+          </button>
+        </div>
+      ) : (
+        <p className="text-[11px] text-text-secondary">Ask the draft creator to upload a replacement asset from Draft Studio.</p>
+      )}
+    </div>
+  );
 
   // Categories present in pending flags for dynamic filter pills
   const existingCategories = Array.from(new Set(pendingFlags.map(f => f.category).filter(Boolean)));
@@ -675,6 +761,52 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
                 </div>
               </div>
 
+              {(currentDraft.status === 'Changes Requested' || latestRequestedChange) && (
+                <div className="rounded-xl border border-[#F87171]/40 bg-[#F87171]/10 p-3.5 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <h4 className="flex items-center gap-1.5 text-xs font-bold text-[#FCA5A5]">
+                      <MessageSquare className="h-3.5 w-3.5" />
+                      Reviewer feedback
+                    </h4>
+                    <button
+                      type="button"
+                      onClick={() => loadComments(currentDraft.id)}
+                      disabled={commentsLoading}
+                      className="text-[10px] font-semibold text-[#AAB4D0] hover:text-white disabled:opacity-50"
+                    >
+                      {commentsLoading ? 'Refreshing...' : 'Refresh'}
+                    </button>
+                  </div>
+                  {latestRequestedChange ? (
+                    <>
+                      <p className="whitespace-pre-wrap break-words text-xs text-[#E8ECF8]">
+                        {latestRequestedChange.text || 'The reviewer requested changes but did not leave written guidance.'}
+                      </p>
+                      <p className="text-[10px] text-[#AAB4D0]">
+                        {latestRequestedChange.user_name || 'Reviewer'} · {new Date(latestRequestedChange.timestamp).toLocaleString()}
+                      </p>
+                    </>
+                  ) : currentDraft.status === 'Changes Requested' ? (
+                    <p className="text-xs text-[#E8ECF8]">The reviewer requested changes. No written reason was attached.</p>
+                  ) : null}
+                  {commentsError && (
+                    <p role="alert" className="text-[11px] text-[#FCA5A5]">
+                      Could not load the feedback thread: {commentsError}
+                    </p>
+                  )}
+                  {comments.filter(comment => comment.decision === 'comment').length > 0 && (
+                    <div className="space-y-2 border-t border-[#F87171]/20 pt-2">
+                      {comments.filter(comment => comment.decision === 'comment').map(comment => (
+                        <div key={comment.id} className="text-[11px] text-[#AAB4D0]">
+                          <span className="font-semibold text-[#E8ECF8]">{comment.user_name || 'Team'}: </span>
+                          <span className="whitespace-pre-wrap break-words">{comment.text}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Compliance Meter & Feedback Banner */}
               <div className="bg-[#0E1428] border border-[#1F2A4A] rounded-xl p-3.5 flex items-center justify-between">
                 <div className="flex items-center space-x-3.5">
@@ -773,14 +905,8 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
                     return (
                       <div className="space-y-3">
                         <div className="relative rounded-xl overflow-hidden border border-border bg-surface-subtle p-3 sm:p-4 min-h-[200px] flex flex-col items-center justify-center">
-                          {imageLoadError ? (
-                            <div className="flex flex-col items-center justify-center py-6 px-4 text-center space-y-2">
-                              <ImageOff className="w-8 h-8 text-text-muted" />
-                              <div className="text-xs font-semibold text-text-primary">Visual Asset Preview Unavailable</div>
-                              <p className="text-[11px] text-text-secondary max-w-xs">
-                                Unable to load creative asset file. The multimodal compliance report remains active below.
-                              </p>
-                            </div>
+                          {mediaLoadError ? (
+                            renderMissingMedia()
                           ) : (
                             <div className="w-full flex flex-col items-center">
                               {/* Asset Status Badge & Meta Header */}
@@ -806,7 +932,7 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
                                 <img
                                   src={mediaUrl(currentDraft.content_ref || '/static/uploads/sample_banner.png')}
                                   alt={currentDraft.title || 'Draft Banner'}
-                                  onError={() => setFailedImageDraftId(currentDraft?.id || 'default')}
+                                  onError={() => setFailedMediaDraftId(currentDraft.id)}
                                   className="max-h-56 sm:max-h-64 w-auto object-contain rounded-md shadow-sm"
                                 />
                               </div>
@@ -849,10 +975,24 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
                 ) : (
                   <div className="space-y-3">
                     <div className="rounded-xl border border-[#1F2A4A] bg-[#0E1428] p-4">
-                      {currentDraft.content_type === 'audio' ? (
-                        <audio ref={mediaElementRef} controls src={mediaUrl(currentDraft.content_ref)} className="w-full" />
+                      {mediaLoadError ? (
+                        renderMissingMedia()
+                      ) : currentDraft.content_type === 'audio' ? (
+                        <audio
+                          ref={mediaElementRef}
+                          controls
+                          src={mediaUrl(currentDraft.content_ref)}
+                          onError={() => setFailedMediaDraftId(currentDraft.id)}
+                          className="w-full"
+                        />
                       ) : (
-                        <video ref={mediaElementRef} controls src={mediaUrl(currentDraft.content_ref)} className="max-h-64 w-full rounded-lg" />
+                        <video
+                          ref={mediaElementRef}
+                          controls
+                          src={mediaUrl(currentDraft.content_ref)}
+                          onError={() => setFailedMediaDraftId(currentDraft.id)}
+                          className="max-h-64 w-full rounded-lg"
+                        />
                       )}
                     </div>
                     <div className="rounded-xl border border-[#FBBF24]/30 bg-[#FBBF24]/10 p-2.5 text-xs text-[#FBBF24]">

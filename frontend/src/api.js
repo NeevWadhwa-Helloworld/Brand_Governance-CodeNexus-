@@ -93,6 +93,14 @@ export const api = {
     });
     return parseResponse(res);
   },
+  async replaceDraftMedia(draftId, formData) {
+    const res = await fetch(`${API_BASE}/drafts/${draftId}/replace-media`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: formData
+    });
+    return parseResponse(res);
+  },
   async updateDraft(draftId, payload, userId) {
     const res = await fetch(`${API_BASE}/drafts/${draftId}`, {
       method: 'PUT',

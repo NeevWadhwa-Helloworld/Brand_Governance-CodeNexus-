@@ -1,4 +1,5 @@
 import json
+import logging
 import math
 import re
 from typing import List, Dict, Any
@@ -6,6 +7,8 @@ from typing import List, Dict, Any
 from backend.config import settings
 from backend.database import get_db
 from backend.services.embedding_service import EmbeddingService
+
+logger = logging.getLogger(__name__)
 
 
 class RAGService:
@@ -54,22 +57,30 @@ class RAGService:
         if not rules:
             return []
 
-        query_embedding = EmbeddingService.embed(text)
+        try:
+            query_embedding = EmbeddingService.embed(text)
+        except Exception:
+            logger.exception("Embedding provider failed; using lexical policy retrieval")
+            query_embedding = None
+
         if query_embedding:
             if settings.is_postgres:
-                with get_db() as conn:
-                    cursor = conn.cursor()
-                    cursor.execute("""
-                        SELECT r.* FROM rules r
-                        JOIN guideline_versions gv ON r.version_id = gv.id
-                        WHERE r.org_id = ? AND r.is_active = 1 AND gv.is_active = 1
-                          AND r.embedding IS NOT NULL
-                        ORDER BY r.embedding <=> ?::vector
-                        LIMIT ?
-                    """, (org_id, EmbeddingService.to_vector_literal(query_embedding), top_k))
-                    vector_rules = cursor.fetchall()
-                    if vector_rules:
-                        return vector_rules
+                try:
+                    with get_db() as conn:
+                        cursor = conn.cursor()
+                        cursor.execute("""
+                            SELECT r.* FROM rules r
+                            JOIN guideline_versions gv ON r.version_id = gv.id
+                            WHERE r.org_id = ? AND r.is_active = 1 AND gv.is_active = 1
+                              AND r.embedding IS NOT NULL
+                            ORDER BY r.embedding <=> ?::vector
+                            LIMIT ?
+                        """, (org_id, EmbeddingService.to_vector_literal(query_embedding), top_k))
+                        vector_rules = cursor.fetchall()
+                        if vector_rules:
+                            return vector_rules
+                except Exception:
+                    logger.exception("Vector policy retrieval failed; using lexical retrieval")
             else:
                 vector_rules = []
                 for rule in rules:
