@@ -59,6 +59,13 @@ CORS_ORIGINS=https://brand-governance-code-nexu.vercel.app
 These values are configured in Render's environment settings, not in the
 frontend build.
 
+Render's `RENDER_EXTERNAL_HOSTNAME` is also added to the backend trusted-host
+list automatically when available. To keep uploaded media available after a
+backend restart, set `STATIC_ROOT` to a mounted persistent-disk directory (for
+example `/var/data/static`) in Render. The default local `backend/static`
+directory is ephemeral on Render free web services, so uploaded media previews
+can disappear after a restart.
+
 ---
 
 ## 🏗️ Architecture & Two-Layer Checking Engine

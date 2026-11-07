@@ -15,22 +15,36 @@ export default function AnalyticsDashboard() {
   const [termFilterCategory, setTermFilterCategory] = useState('all');
   const [termSearchQuery, setTermSearchQuery] = useState('');
 
-  async function loadAnalytics() {
-    setLoading(true);
-    setError(null);
-    try {
-      const [res, trendData] = await Promise.all([
-        api.getAnalytics(),
-        api.getAnalyticsTrends()
-      ]);
-      setData(res);
-      setTrends(trendData || []);
-    } catch (e) {
-      console.error(e);
-      setError(e.message || 'Failed to load governance analytics.');
-    } finally {
-      setLoading(false);
+  async function loadAnalytics(isRefresh = false) {
+    if (isRefresh) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
     }
+    setError(null);
+
+    const [dashboardResult, trendsResult] = await Promise.allSettled([
+      api.getAnalytics(),
+      api.getAnalyticsTrends()
+    ]);
+
+    if (dashboardResult.status === 'fulfilled') {
+      setData(dashboardResult.value);
+    } else {
+      console.error(dashboardResult.reason);
+      setError(dashboardResult.reason.message || 'Failed to load governance analytics.');
+    }
+
+    if (trendsResult.status === 'fulfilled') {
+      setTrends(trendsResult.value || []);
+    } else {
+      console.error(trendsResult.reason);
+      setTrends([]);
+      setError(previous => previous || `Trend data unavailable: ${trendsResult.reason.message}`);
+    }
+
+    setLoading(false);
+    setRefreshing(false);
   }
 
   useEffect(() => {
@@ -38,21 +52,7 @@ export default function AnalyticsDashboard() {
   }, []);
 
   async function handleRefresh() {
-    setRefreshing(true);
-    setError(null);
-    try {
-      const [res, trendData] = await Promise.all([
-        api.getAnalytics(),
-        api.getAnalyticsTrends()
-      ]);
-      setData(res);
-      setTrends(trendData || []);
-    } catch (e) {
-      console.error(e);
-      setError(e.message || 'Failed to refresh analytics.');
-    } finally {
-      setRefreshing(false);
-    }
+    await loadAnalytics(true);
   }
 
   if (loading) {

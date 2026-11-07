@@ -44,16 +44,16 @@ class AuditService:
         return log_id
 
     @classmethod
-    def get_logs_for_draft(cls, draft_id: str) -> List[Dict[str, Any]]:
+    def get_logs_for_draft(cls, draft_id: str, org_id: str) -> List[Dict[str, Any]]:
         with get_db() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT a.*, u.name as user_name, u.role as user_role
                 FROM audit_logs a
                 LEFT JOIN users u ON a.user_id = u.id
-                WHERE a.draft_id = ?
+                WHERE a.draft_id = ? AND a.org_id = ?
                 ORDER BY a.timestamp DESC
-            """, (draft_id,))
+            """, (draft_id, org_id))
             rows = cursor.fetchall()
 
         logs = []

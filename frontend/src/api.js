@@ -73,7 +73,7 @@ export const api = {
       },
       body: JSON.stringify(payload)
     });
-    return res.json();
+    return parseResponse(res);
   },
   async uploadImageDraft(formData, userId) {
     const res = await fetch(`${API_BASE}/drafts/upload-image`, {
@@ -83,7 +83,7 @@ export const api = {
       },
       body: formData
     });
-    return res.json();
+    return parseResponse(res);
   },
   async uploadMediaDraft(formData) {
     const res = await fetch(`${API_BASE}/drafts/upload-media`, {
@@ -102,21 +102,21 @@ export const api = {
       },
       body: JSON.stringify(payload)
     });
-    return res.json();
+    return parseResponse(res);
   },
   async scanDraft(draftId, userId) {
     const res = await fetch(`${API_BASE}/drafts/${draftId}/scan`, {
       method: 'POST',
       headers: authHeaders(userId)
     });
-    return res.json();
+    return parseResponse(res);
   },
   async submitForApproval(draftId, userId) {
     const res = await fetch(`${API_BASE}/drafts/${draftId}/submit`, {
       method: 'POST',
       headers: authHeaders(userId)
     });
-    return res.json();
+    return parseResponse(res);
   },
   async decideApproval(draftId, decision, comment, userId) {
     const res = await fetch(`${API_BASE}/drafts/${draftId}/decision`, {
@@ -127,7 +127,7 @@ export const api = {
       },
       body: JSON.stringify({ decision, comment })
     });
-    return res.json();
+    return parseResponse(res);
   },
   async getComments(draftId) {
     const res = await fetch(`${API_BASE}/drafts/${draftId}/comments`, { headers: authHeaders() });
@@ -142,7 +142,7 @@ export const api = {
       },
       body: JSON.stringify({ text })
     });
-    return res.json();
+    return parseResponse(res);
   },
 
   // Flags
@@ -155,7 +155,7 @@ export const api = {
       },
       body: JSON.stringify({ resolution, edited_fix: editedFix, comment })
     });
-    return res.json();
+    return parseResponse(res);
   },
 
   // Guidelines & Brain
@@ -172,14 +172,14 @@ export const api = {
       },
       body: JSON.stringify(payload)
     });
-    return res.json();
+    return parseResponse(res);
   },
   async deleteRule(ruleId, userId) {
     const res = await fetch(`${API_BASE}/guidelines/rules/${ruleId}`, {
       method: 'DELETE',
       headers: authHeaders(userId)
     });
-    return res.json();
+    return parseResponse(res);
   },
   async ingestGuidelines(payload, userId) {
     const res = await fetch(`${API_BASE}/guidelines/ingest`, {
@@ -190,7 +190,7 @@ export const api = {
       },
       body: JSON.stringify(payload)
     });
-    return res.json();
+    return parseResponse(res);
   },
   async getTerminology() {
     const res = await fetch(`${API_BASE}/guidelines/terminology`, { headers: authHeaders() });
@@ -205,14 +205,14 @@ export const api = {
       },
       body: JSON.stringify(payload)
     });
-    return res.json();
+    return parseResponse(res);
   },
   async deleteTerminology(termId, userId) {
     const res = await fetch(`${API_BASE}/guidelines/terminology/${termId}`, {
       method: 'DELETE',
       headers: authHeaders(userId)
     });
-    return res.json();
+    return parseResponse(res);
   },
   async getFacts() {
     const res = await fetch(`${API_BASE}/guidelines/facts`, { headers: authHeaders() });
@@ -227,7 +227,7 @@ export const api = {
       },
       body: JSON.stringify(payload)
     });
-    return res.json();
+    return parseResponse(res);
   },
   async updateFact(factId, payload, userId) {
     const res = await fetch(`${API_BASE}/guidelines/facts/${factId}`, {
@@ -238,14 +238,14 @@ export const api = {
       },
       body: JSON.stringify(payload)
     });
-    return res.json();
+    return parseResponse(res);
   },
   async deleteFact(factId, userId) {
     const res = await fetch(`${API_BASE}/guidelines/facts/${factId}`, {
       method: 'DELETE',
       headers: authHeaders(userId)
     });
-    return res.json();
+    return parseResponse(res);
   },
   async getColors() {
     const res = await fetch(`${API_BASE}/guidelines/colors`, { headers: authHeaders() });
@@ -260,14 +260,14 @@ export const api = {
       },
       body: JSON.stringify(payload)
     });
-    return res.json();
+    return parseResponse(res);
   },
   async deleteColor(colorId, userId) {
     const res = await fetch(`${API_BASE}/guidelines/colors/${colorId}`, {
       method: 'DELETE',
       headers: authHeaders(userId)
     });
-    return res.json();
+    return parseResponse(res);
   },
   async getLogos() {
     const res = await fetch(`${API_BASE}/guidelines/logos`, { headers: authHeaders() });
@@ -279,14 +279,14 @@ export const api = {
       headers: authHeaders(userId),
       body: formData
     });
-    return res.json();
+    return parseResponse(res);
   },
   async deleteLogo(logoId, userId) {
     const res = await fetch(`${API_BASE}/guidelines/logos/${logoId}`, {
       method: 'DELETE',
       headers: authHeaders(userId)
     });
-    return res.json();
+    return parseResponse(res);
   },
 
   // Analytics & Evaluation

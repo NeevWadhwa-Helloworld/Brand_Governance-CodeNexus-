@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from backend.database import get_db
 from backend.schemas import FlagResolveRequest
 from backend.services.audit_service import AuditService
-from backend.dependencies import get_current_user
+from backend.dependencies import require_role
 
 router = APIRouter(prefix="/api/flags", tags=["flags"])
 
@@ -11,7 +11,7 @@ router = APIRouter(prefix="/api/flags", tags=["flags"])
 def resolve_flag(
     flag_id: str,
     req: FlagResolveRequest,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(require_role("creator", "admin"))
 ):
     x_user_id = current_user["id"]
     """
@@ -29,8 +29,8 @@ def resolve_flag(
             FROM flags f
             JOIN revisions r ON f.revision_id = r.id
             JOIN drafts d ON r.draft_id = d.id
-            WHERE f.id = ?
-        """, (flag_id,))
+            WHERE f.id = ? AND d.org_id = ?
+        """, (flag_id, current_user["org_id"]))
         row = cursor.fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Flag not found")

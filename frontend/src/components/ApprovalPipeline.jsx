@@ -215,6 +215,7 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
 
     return matchesStatus && matchesSearch;
   });
+  const selectedDraftIsVisible = filteredDrafts.some(d => d.id === selectedDraftId);
 
   const statusStyles = {
     'Approved': 'bg-[#34D399]/15 text-[#34D399] border-[#34D399]/30',
@@ -349,7 +350,7 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
 
       {/* Right: Pre-Audited Draft Review & Decision Panel */}
       <div className="lg:col-span-8 space-y-4">
-        {currentDraft ? (
+        {currentDraft && selectedDraftIsVisible ? (
           <div className="bg-[#111830] border border-[#1F2A4A] rounded-2xl p-5 sm:p-6 space-y-5 shadow-xl">
             {/* Header & Meta Actions */}
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#1F2A4A] pb-4">
@@ -387,23 +388,27 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
                   <span>Audit Certificate</span>
                 </button>
 
-                <button
-                  type="button"
-                  onClick={() => setDecisionModal('Changes Requested')}
-                  className="flex items-center space-x-1.5 bg-[#F87171]/15 hover:bg-[#F87171]/25 text-[#F87171] border border-[#F87171]/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors shadow-sm"
-                >
-                  <AlertOctagon className="w-3.5 h-3.5" />
-                  <span>Request Changes</span>
-                </button>
+                {currentDraft.status === 'Pending Approval' && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setDecisionModal('Changes Requested')}
+                      className="flex items-center space-x-1.5 bg-[#F87171]/15 hover:bg-[#F87171]/25 text-[#F87171] border border-[#F87171]/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors shadow-sm"
+                    >
+                      <AlertOctagon className="w-3.5 h-3.5" />
+                      <span>Request Changes</span>
+                    </button>
 
-                <button
-                  type="button"
-                  onClick={() => setDecisionModal('Approved')}
-                  className="flex items-center space-x-1.5 bg-[#34D399] hover:bg-[#10B981] text-[#0A0F1E] px-3.5 py-1.5 rounded-lg text-xs font-bold shadow-md shadow-[#34D399]/20 transition-all"
-                >
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span>Approve & Sign-Off</span>
-                </button>
+                    <button
+                      type="button"
+                      onClick={() => setDecisionModal('Approved')}
+                      className="flex items-center space-x-1.5 bg-[#34D399] hover:bg-[#10B981] text-[#0A0F1E] px-3.5 py-1.5 rounded-lg text-xs font-bold shadow-md shadow-[#34D399]/20 transition-all"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>Approve & Sign-Off</span>
+                    </button>
+                  </>
+                )}
               </div>
             </div>
 

@@ -1,5 +1,4 @@
 import uvicorn
-from pathlib import Path
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -26,14 +25,6 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS middleware configuration
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS or ["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.TRUSTED_HOSTS)
 
 @app.middleware("http")
@@ -55,8 +46,18 @@ async def security_middleware(request: Request, call_next):
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
 
+# Keep CORS outside host and application middleware so API errors still include
+# the headers required by the deployed frontend.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.CORS_ORIGINS or ["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Mount static files
-static_dir = Path(__file__).parent / "static"
+static_dir = settings.STATIC_ROOT
 static_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 

@@ -17,7 +17,7 @@ from backend.schemas import (
 from backend.services.rag_service import RAGService
 from backend.services.embedding_service import EmbeddingService
 from backend.services.audit_service import AuditService
-from backend.dependencies import require_role, get_current_user
+from backend.dependencies import require_role, get_current_user, organization_scope
 
 router = APIRouter(
     prefix="/api/guidelines",
@@ -30,10 +30,22 @@ class IngestRequest(BaseModel):
     version: str
     content: str
 
+def _current_org_id(
+    org_id: str | None = None,
+    current_user: dict = Depends(get_current_user),
+) -> str:
+    return organization_scope(current_user, org_id)
+
+def _admin_org_id(
+    org_id: str | None = None,
+    current_user: dict = Depends(require_role("admin")),
+) -> str:
+    return organization_scope(current_user, org_id)
+
 # --- Numbered Rules ---
 
 @router.get("/rules", response_model=List[RuleItem])
-def get_rules(org_id: str = "org_inkloom"):
+def get_rules(org_id: str = Depends(_current_org_id)):
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute("""
@@ -47,7 +59,7 @@ def get_rules(org_id: str = "org_inkloom"):
 @router.post("/rules", response_model=RuleItem)
 def create_rule(
     rule_in: RuleCreate, 
-    org_id: str = "org_inkloom", 
+    org_id: str = Depends(_admin_org_id),
     current_user: dict = Depends(require_role("admin"))
 ):
     user_id = current_user['id']
@@ -100,7 +112,7 @@ def create_rule(
 @router.delete("/rules/{rule_id}")
 def delete_rule(
     rule_id: str, 
-    org_id: str = "org_inkloom", 
+    org_id: str = Depends(_admin_org_id),
     current_user: dict = Depends(require_role("admin"))
 ):
     with get_db() as conn:
@@ -112,7 +124,7 @@ def delete_rule(
 @router.post("/ingest")
 def ingest_guidelines(
     req: IngestRequest, 
-    org_id: str = "org_inkloom", 
+    org_id: str = Depends(_admin_org_id),
     current_user: dict = Depends(require_role("admin"))
 ):
     user_id = current_user['id']
@@ -172,7 +184,7 @@ def ingest_guidelines(
 # --- Terminology Dictionary ---
 
 @router.get("/terminology", response_model=List[TerminologyItem])
-def get_terminology(org_id: str = "org_inkloom"):
+def get_terminology(org_id: str = Depends(_current_org_id)):
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM terminology_entries WHERE org_id = ? ORDER BY banned_term ASC", (org_id,))
@@ -187,7 +199,7 @@ class TerminologyCreate(BaseModel):
 @router.post("/terminology", response_model=TerminologyItem)
 def create_terminology(
     item: TerminologyCreate, 
-    org_id: str = "org_inkloom",
+    org_id: str = Depends(_admin_org_id),
     current_user: dict = Depends(require_role("admin"))
 ):
     with get_db() as conn:
@@ -207,7 +219,7 @@ def create_terminology(
 @router.delete("/terminology/{term_id}")
 def delete_terminology(
     term_id: str, 
-    org_id: str = "org_inkloom",
+    org_id: str = Depends(_admin_org_id),
     current_user: dict = Depends(require_role("admin"))
 ):
     with get_db() as conn:
@@ -219,7 +231,7 @@ def delete_terminology(
 # --- Approved Facts ---
 
 @router.get("/facts", response_model=List[ApprovedFactItem])
-def get_approved_facts(org_id: str = "org_inkloom"):
+def get_approved_facts(org_id: str = Depends(_current_org_id)):
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM approved_facts WHERE org_id = ? ORDER BY last_updated DESC", (org_id,))
@@ -228,7 +240,7 @@ def get_approved_facts(org_id: str = "org_inkloom"):
 @router.post("/facts", response_model=ApprovedFactItem)
 def create_approved_fact(
     item: ApprovedFactCreate,
-    org_id: str = "org_inkloom",
+    org_id: str = Depends(_admin_org_id),
     current_user: dict = Depends(require_role("admin"))
 ):
     with get_db() as conn:
@@ -257,7 +269,7 @@ def create_approved_fact(
 def update_approved_fact(
     fact_id: str,
     item: ApprovedFactUpdate,
-    org_id: str = "org_inkloom",
+    org_id: str = Depends(_admin_org_id),
     current_user: dict = Depends(require_role("admin"))
 ):
     now_date = datetime.utcnow().strftime("%Y-%m-%d")
@@ -292,7 +304,7 @@ def update_approved_fact(
 @router.delete("/facts/{fact_id}")
 def delete_approved_fact(
     fact_id: str,
-    org_id: str = "org_inkloom",
+    org_id: str = Depends(_admin_org_id),
     current_user: dict = Depends(require_role("admin"))
 ):
     with get_db() as conn:
@@ -304,7 +316,7 @@ def delete_approved_fact(
 # --- Brand Colors ---
 
 @router.get("/colors", response_model=List[BrandColorItem])
-def get_brand_colors(org_id: str = "org_inkloom"):
+def get_brand_colors(org_id: str = Depends(_current_org_id)):
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM brand_colors WHERE org_id = ?", (org_id,))
@@ -313,7 +325,7 @@ def get_brand_colors(org_id: str = "org_inkloom"):
 @router.post("/colors", response_model=BrandColorItem)
 def create_brand_color(
     item: BrandColorCreate,
-    org_id: str = "org_inkloom",
+    org_id: str = Depends(_admin_org_id),
     current_user: dict = Depends(require_role("admin"))
 ):
     with get_db() as conn:
@@ -339,7 +351,7 @@ def create_brand_color(
 @router.delete("/colors/{color_id}")
 def delete_brand_color(
     color_id: str,
-    org_id: str = "org_inkloom",
+    org_id: str = Depends(_admin_org_id),
     current_user: dict = Depends(require_role("admin"))
 ):
     with get_db() as conn:
@@ -351,7 +363,7 @@ def delete_brand_color(
 # --- Brand Logos ---
 
 @router.get("/logos", response_model=List[BrandLogoItem])
-def get_brand_logos(org_id: str = "org_inkloom"):
+def get_brand_logos(org_id: str = Depends(_current_org_id)):
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM brand_logos WHERE org_id = ?", (org_id,))
@@ -363,9 +375,10 @@ async def upload_brand_logo(
     file: UploadFile = File(...),
     aspect_ratio: float = Form(1.0),
     min_clearance_pct: float = Form(10.0),
-    org_id: str = Form("org_inkloom"),
+    org_id: str | None = Form(None),
     current_user: dict = Depends(require_role("admin"))
 ):
+    org_id = organization_scope(current_user, org_id)
     logo_id = str(uuid.uuid4())
     file_ext = Path(file.filename).suffix or ".png"
     saved_filename = f"logo_{logo_id}{file_ext}"
@@ -405,7 +418,7 @@ async def upload_brand_logo(
 @router.delete("/logos/{logo_id}")
 def delete_brand_logo(
     logo_id: str,
-    org_id: str = "org_inkloom",
+    org_id: str = Depends(_admin_org_id),
     current_user: dict = Depends(require_role("admin"))
 ):
     with get_db() as conn:

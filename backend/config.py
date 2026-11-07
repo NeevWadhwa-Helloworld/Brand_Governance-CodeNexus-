@@ -26,6 +26,7 @@ class Settings:
         for host in os.getenv("TRUSTED_HOSTS", "localhost,127.0.0.1").split(",")
         if host.strip()
     ]
+    RENDER_EXTERNAL_HOSTNAME: str = os.getenv("RENDER_EXTERNAL_HOSTNAME", "").strip()
 
     # Security & RBAC
     SECRET_KEY: str = os.getenv("SECRET_KEY", "")
@@ -51,14 +52,20 @@ class Settings:
     MIN_CONFIDENCE_THRESHOLD: float = float(os.getenv("MIN_CONFIDENCE_THRESHOLD", 0.70))
 
     # Static Assets Storage
-    STATIC_UPLOAD_DIR: Path = BASE_DIR / "backend" / "static" / "uploads"
-    STATIC_LOGO_DIR: Path = BASE_DIR / "backend" / "static" / "logos"
+    STATIC_ROOT: Path = Path(os.getenv("STATIC_ROOT", str(BASE_DIR / "backend" / "static")))
+    STATIC_UPLOAD_DIR: Path = STATIC_ROOT / "uploads"
+    STATIC_LOGO_DIR: Path = STATIC_ROOT / "logos"
 
 settings = Settings()
 
 deployed_frontend_origin = "https://brand-governance-code-nexu.vercel.app"
+deployed_backend_host = "brand-governance-codenexus.onrender.com"
 if deployed_frontend_origin not in settings.CORS_ORIGINS:
     settings.CORS_ORIGINS.append(deployed_frontend_origin)
+if deployed_backend_host not in settings.TRUSTED_HOSTS:
+    settings.TRUSTED_HOSTS.append(deployed_backend_host)
+if settings.RENDER_EXTERNAL_HOSTNAME and settings.RENDER_EXTERNAL_HOSTNAME not in settings.TRUSTED_HOSTS:
+    settings.TRUSTED_HOSTS.append(settings.RENDER_EXTERNAL_HOSTNAME)
 
 if settings.ENVIRONMENT.lower() in {"production", "staging"}:
     if len(settings.SECRET_KEY) < 32:

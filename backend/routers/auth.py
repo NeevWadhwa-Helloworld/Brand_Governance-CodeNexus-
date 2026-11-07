@@ -28,7 +28,7 @@ def login(request: LoginRequest):
     return {"access_token": token, "token_type": "bearer", "user": {k: user[k] for k in ("id", "org_id", "email", "name", "role", "avatar")}}
 
 @router.get("/users", response_model=List[UserBase])
-def get_all_users(current_user: dict = Depends(get_current_user)):
+def get_all_users(current_user: dict = Depends(require_role("admin"))):
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute(

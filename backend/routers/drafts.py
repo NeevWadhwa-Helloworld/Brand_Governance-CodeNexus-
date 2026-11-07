@@ -268,6 +268,14 @@ async def update_draft(
 @router.post("/{draft_id}/scan", response_model=ScanResponse)
 async def scan_draft_endpoint(draft_id: str, current_user: dict = Depends(get_current_user)):
     x_user_id = current_user["id"]
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id FROM drafts WHERE id = ? AND org_id = ?",
+            (draft_id, current_user["org_id"]),
+        )
+        if not cursor.fetchone():
+            raise HTTPException(status_code=404, detail="Draft not found")
     try:
         return await Scanner.scan_draft(draft_id, x_user_id)
     except Exception as e:
@@ -330,6 +338,11 @@ def make_approval_decision(
         draft = cursor.fetchone()
         if not draft:
             raise HTTPException(status_code=404, detail="Draft not found")
+        if draft["status"] != "Pending Approval":
+            raise HTTPException(
+                status_code=409,
+                detail="Only drafts pending approval can receive a decision."
+            )
 
         decision_status = 'Approved' if req.decision == 'Approved' else 'Changes Requested'
 

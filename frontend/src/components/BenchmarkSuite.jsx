@@ -9,16 +9,19 @@ export default function BenchmarkSuite() {
   const [report, setReport] = useState(null);
   const [running, setRunning] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
   const [sampleFilter, setSampleFilter] = useState('all'); // all, passed, failed
   const [searchQuery, setSearchQuery] = useState('');
 
   async function loadBenchmark() {
     setLoading(true);
+    setError(null);
     try {
       const res = await api.getLatestEvaluation();
       setReport(res);
     } catch (e) {
       console.error(e);
+      setError(e.message || 'Failed to load the latest benchmark.');
     } finally {
       setLoading(false);
     }
@@ -30,11 +33,13 @@ export default function BenchmarkSuite() {
 
   async function handleRun() {
     setRunning(true);
+    setError(null);
     try {
       const res = await api.runEvaluation();
       setReport(res);
     } catch (e) {
       console.error(e);
+      setError(e.message || 'Benchmark execution failed.');
     } finally {
       setRunning(false);
     }
@@ -96,7 +101,7 @@ export default function BenchmarkSuite() {
           <button
             type="button"
             onClick={handleRun}
-            disabled={running}
+            disabled={running || loading}
             className="flex items-center space-x-2 bg-gradient-to-r from-[#36D6A0] to-[#059669] hover:from-[#45E6AE] hover:to-[#10B981] text-[#101613] px-4 py-2 rounded-xl text-xs font-bold shadow-lg shadow-[#36D6A0]/20 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
           >
             {running ? (
@@ -108,6 +113,20 @@ export default function BenchmarkSuite() {
           </button>
         </div>
       </div>
+
+      {error && (
+        <div role="alert" className="rounded-xl border border-[#F87171]/40 bg-[#F87171]/10 px-4 py-3 text-xs text-[#F87171] flex flex-wrap items-center justify-between gap-3">
+          <span>{error}</span>
+          <button
+            type="button"
+            onClick={loadBenchmark}
+            disabled={loading || running}
+            className="rounded-lg border border-[#F87171]/40 px-3 py-1.5 font-semibold hover:bg-[#F87171]/10 disabled:opacity-60"
+          >
+            {loading ? 'Retrying...' : 'Retry'}
+          </button>
+        </div>
+      )}
 
       {loading && !report ? (
         <div className="space-y-4 py-8">
@@ -350,7 +369,7 @@ export default function BenchmarkSuite() {
           <button
             type="button"
             onClick={handleRun}
-            disabled={running}
+            disabled={running || loading}
             className="bg-[#4F6BED] hover:bg-[#6479F2] text-white px-5 py-2.5 rounded-xl text-xs font-bold shadow-lg shadow-[#4F6BED]/25 transition-all"
           >
             Run Initial Benchmark
