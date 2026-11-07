@@ -79,10 +79,22 @@ class Scanner:
         coverage_status, coverage_reason = cls._assess_policy_coverage(
             org_id, content_text, image_path, content_type
         )
+        if content_type == "image" and not (
+            settings.GEMINI_API_KEY
+            and settings.GEMINI_API_KEY != "your_gemini_api_key_here"
+        ):
+            coverage_status = "needs_review"
+            coverage_reason = (
+                "Automated image review is unavailable. Text and OCR findings may be reported, "
+                "but logo use, visual palette, layout, and text/background contrast need human review."
+            )
         missing_capabilities = media_analysis.get("missing_capabilities", [])
         if missing_capabilities:
             coverage_status = "needs_review"
-            coverage_reason = "Media extraction is incomplete: " + ", ".join(missing_capabilities) + "."
+            extraction_reason = "Media extraction is incomplete: " + ", ".join(missing_capabilities) + "."
+            coverage_reason = " ".join(
+                reason for reason in (coverage_reason, extraction_reason) if reason
+            )
 
         layer1_task = asyncio.to_thread(
             DeterministicEngine.run_all,

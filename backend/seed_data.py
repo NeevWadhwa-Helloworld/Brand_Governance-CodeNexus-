@@ -95,11 +95,11 @@ async def seed_database():
             ("FACT-04", "facts", "Company Headquarters & Origin", "Founded in Bengaluru, India in 2024 by AI researchers and designers.", "Reference Bengaluru HQ."),
             ("CLAIM-01", "claims", "Substantiation of Superlatives", "Never claim to be the '#1 solution', 'the best in the world', or 'undisputed leader' without citing verified third-party analyst data.", "Must cite G2, Gartner, or verified public benchmarks."),
             ("CLAIM-02", "claims", "Assistive Co-Pilot Positioning", "Never advertise 'instantaneous zero-effort automated perfection'. Emphasize human-in-the-loop oversight.", "Uphold responsible AI design principles."),
-            ("COLOR-01", "color", "Inkloom Electric Blue (Primary)", "Primary signature hex code is #2563EB. All primary buttons, logos, and badges must use #2563EB.", "Deprecated blues like #1D4ED8 or generic #0000FF are prohibited."),
+            ("COLOR-01", "color", "Approved Palette for Brand Elements", "Use the approved palette for logos, interface components, and intentionally branded graphic elements. Photography and other content imagery may contain natural colors.", "Do not classify individual pixels in photographs as off-brand. Check palette compliance on identifiable brand elements."),
             ("COLOR-02", "color", "Inkloom Deep Navy (Dark)", "Dark contrast background and primary typography hex is #0F172A.", "Provides foundation for premium dark aesthetic."),
             ("COLOR-03", "color", "Coral Accent (Highlight)", "Accent calls to action and critical highlights use Coral #F43F5E.", "Use sparingly for maximum visual punch."),
-            ("LOGO-01", "logo", "Official Inkloom Mark v3", "Only the official Inkloom v3 geometric mark with 32px safe margin is authorized.", "Deprecated 2024 beta logo is strictly retired."),
-            ("A11Y-01", "accessibility", "WCAG AA Contrast Standards", "All digital text content must maintain a minimum contrast ratio of 4.5:1 against its background.", "3.0:1 allowed only for large display text (>24px).")
+            ("LOGO-01", "logo", "Approved Brand Marks", "Use an asset listed in the approved logo library. Preserve its proportions and clear space; do not redraw, recolor, distort, or combine it with another mark unless an approved variant permits that treatment.", "Automated filename or dominant-color checks do not verify logo identity or placement."),
+            ("A11Y-01", "accessibility", "Contrast of Actual Text and Controls", "Measure foreground and background color pairs for text and interactive controls. Use at least 4.5:1 for normal text and 3:1 for large text and meaningful UI graphics, unless a stricter applicable requirement applies.", "Do not infer a contrast failure from the two most common colors in a photograph.")
         ]
 
         for rid, cat, title, text, details in rules_data:

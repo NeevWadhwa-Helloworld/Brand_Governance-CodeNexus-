@@ -683,14 +683,18 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
                     complianceScore >= 50 ? 'border-[#FBBF24] bg-[#FBBF24]/10 text-[#FBBF24]' :
                     'border-[#F87171] bg-[#F87171]/10 text-[#F87171]'
                   }`}>
-                    {complianceScore}%
+                    {needsPolicyReview ? '—' : `${complianceScore}%`}
                   </div>
                   <div>
                     <div className="text-xs font-bold text-[#E8ECF8]">
-                      {complianceScore >= 80 ? 'High Brand Alignment' : 'Off-Brand Violations Detected'}
+                      {needsPolicyReview
+                        ? 'Human review required'
+                        : complianceScore >= 80 ? 'High Brand Alignment' : 'Off-Brand Violations Detected'}
                     </div>
                     <div className="text-[11px] text-[#AAB4D0] mt-0.5">
-                      {pendingFlags.length === 0
+                      {needsPolicyReview
+                        ? 'Automated checks could not fully verify this asset.'
+                        : pendingFlags.length === 0
                         ? 'All brand checks passed. Ready for approval!'
                         : `${pendingFlags.length} pending issue(s) require creator resolution`}
                     </div>

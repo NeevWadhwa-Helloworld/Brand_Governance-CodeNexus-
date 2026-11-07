@@ -178,24 +178,10 @@ RULES:
     def _local_visual_semantic_eval(cls, image_path: str, retrieved_rules: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         Local semantic visual evaluator for environments without external Gemini API key.
-        Checks for semantic visual guidelines such as assistive co-pilot positioning (CLAIM-02)
-        and official visual mark clearance (LOGO-01).
+        Filename heuristics cannot reliably determine what an image depicts, so
+        visual policy decisions are deferred to human review without a vision model.
         """
-        flags = []
-        retrieved_ids = {r['rule_id'] for r in retrieved_rules}
-        lower_path = image_path.lower()
-
-        # If banner filename or image metadata indicates deprecated assets or missing safe margins
-        if "LOGO-01" in retrieved_ids and ("beta" in lower_path or "old" in lower_path or "2024" in lower_path):
-            flags.append({
-                "rule_id": "LOGO-01",
-                "quoted_span": "Visual brand asset header",
-                "explanation": "Visual asset uses deprecated beta branding. Guideline LOGO-01 mandates official Inkloom v3 geometry with 32px safe clearance.",
-                "suggested_fix": "Swap banner logo layer with official SVG from Source of Truth",
-                "confidence": 0.95
-            })
-
-        return flags
+        return []
 
     @classmethod
     def _local_semantic_rules_eval(cls, text: str, retrieved_rules: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -284,4 +270,3 @@ RULES:
                 })
 
         return flags
-

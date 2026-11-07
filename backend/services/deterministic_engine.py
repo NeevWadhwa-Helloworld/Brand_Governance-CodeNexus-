@@ -1,9 +1,5 @@
 import re
-import hashlib
 from typing import List, Dict, Any, Optional
-from pathlib import Path
-from PIL import Image
-import imagehash
 from backend.database import get_db
 
 class DeterministicEngine:
@@ -20,10 +16,6 @@ class DeterministicEngine:
             flags.extend(cls.check_terminology(org_id, text))
             flags.extend(cls.check_facts(org_id, text))
             flags.extend(cls.check_text_colors(org_id, text))
-
-        if image_path:
-            flags.extend(cls.check_image_colors_and_contrast(org_id, image_path))
-            flags.extend(cls.check_image_logo(org_id, image_path))
 
         return flags
 
@@ -180,131 +172,6 @@ class DeterministicEngine:
                     "confidence": 0.99,
                     "layer": "layer1_deterministic"
                 })
-
-        return flags
-
-    @classmethod
-    def _calculate_luminance(cls, r: int, g: int, b: int) -> float:
-        """WCAG relative luminance formula."""
-        def channel_lum(val: float) -> float:
-            c = val / 255.0
-            return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
-
-        return 0.2126 * channel_lum(r) + 0.7152 * channel_lum(g) + 0.0722 * channel_lum(b)
-
-    @classmethod
-    def _calculate_contrast_ratio(cls, rgb1: tuple, rgb2: tuple) -> float:
-        l1 = cls._calculate_luminance(*rgb1)
-        l2 = cls._calculate_luminance(*rgb2)
-        brightest = max(l1, l2)
-        darkest = min(l1, l2)
-        return (brightest + 0.05) / (darkest + 0.05)
-
-    @classmethod
-    def check_image_colors_and_contrast(cls, org_id: str, image_path: str) -> List[Dict[str, Any]]:
-        flags = []
-        path = Path(image_path)
-        if not path.exists():
-            return flags
-
-        try:
-            with Image.open(path) as img:
-                img_rgb = img.convert('RGB')
-                # Downsample for quick palette extraction
-                small_img = img_rgb.resize((64, 64))
-                colors = small_img.getcolors(maxcolors=4096)
-                if not colors:
-                    return flags
-
-                # Sort by frequency
-                sorted_colors = sorted(colors, key=lambda x: x[0], reverse=True)
-                dominant_rgbs = [c[1] for c in sorted_colors[:5]]
-
-                with get_db() as conn:
-                    cursor = conn.cursor()
-                    cursor.execute("SELECT * FROM brand_colors WHERE org_id = ?", (org_id,))
-                    brand_palette = cursor.fetchall()
-
-                # Check minimum contrast between top 2 dominant colors (simulating foreground vs background)
-                if len(dominant_rgbs) >= 2:
-                    bg_rgb = dominant_rgbs[0]
-                    fg_rgb = dominant_rgbs[1]
-                    ratio = cls._calculate_contrast_ratio(bg_rgb, fg_rgb)
-                    if ratio < 4.5:
-                        flags.append({
-                            "rule_id": "A11Y-01",
-                            "category": "accessibility",
-                            "span": f"Contrast ratio {ratio:.2f}:1 between dominant elements",
-                            "start_idx": -1,
-                            "end_idx": -1,
-                            "explanation": f"Fails WCAG AA minimum contrast ratio (required: 4.5:1, measured: {ratio:.2f}:1). Low contrast hinders legibility.",
-                            "fix": "Increase luminance difference or switch to Inkloom Deep Navy (#0F172A) / White (#FFFFFF)",
-                            "confidence": 0.94,
-                            "layer": "layer1_deterministic"
-                        })
-
-                # Check if dominant colors are totally off-brand (e.g. bright neon magenta or off-shade)
-                primary_hex = "#2563EB"
-                coral_hex = "#F43F5E"
-                navy_hex = "#0F172A"
-                # Check for off-brand red/pink e.g. #FF0055
-                for count, rgb in sorted_colors[:3]:
-                    hex_val = f"#{rgb[0]:02X}{rgb[1]:02X}{rgb[2]:02X}"
-                    # Check distance from primary brand colors
-                    if hex_val in ("#FF0055", "#FF0000", "#1D4ED8"):
-                        flags.append({
-                            "rule_id": "COLOR-01",
-                            "category": "color",
-                            "span": f"Detected dominant color {hex_val}",
-                            "start_idx": -1,
-                            "end_idx": -1,
-                            "explanation": f"Color {hex_val} deviates from official brand primary {primary_hex} and accent {coral_hex}.",
-                            "fix": f"Recolor element using official brand primary {primary_hex}",
-                            "confidence": 0.92,
-                            "layer": "layer1_deterministic"
-                        })
-                        break
-        except Exception:
-            pass
-
-        return flags
-
-    @classmethod
-    def check_image_logo(cls, org_id: str, image_path: str) -> List[Dict[str, Any]]:
-        flags = []
-        path = Path(image_path)
-        if not path.exists():
-            return flags
-
-        try:
-            with open(path, "rb") as f:
-                file_hash = hashlib.sha256(f.read()).hexdigest()
-
-            with get_db() as conn:
-                cursor = conn.cursor()
-                cursor.execute("SELECT * FROM brand_logos WHERE org_id = ?", (org_id,))
-                logos = cursor.fetchall()
-
-            with Image.open(path) as img:
-                calc_phash = str(imagehash.phash(img))
-
-            for logo in logos:
-                # If image explicitly matches a deprecated logo hash or keyword
-                if "old" in path.name.lower() or "deprecated" in path.name.lower() or "beta" in path.name.lower():
-                    flags.append({
-                        "rule_id": "LOGO-01",
-                        "category": "logo",
-                        "span": "Deprecated 2024 beta logo asset",
-                        "start_idx": -1,
-                        "end_idx": -1,
-                        "explanation": "Outdated logo asset identified. Brand guidelines strictly enforce official Inkloom v3 logo with 32px clearance.",
-                        "fix": "Replace with official Inkloom v3 SVG vector logo",
-                        "confidence": 0.96,
-                        "layer": "layer1_deterministic"
-                    })
-                    break
-        except Exception:
-            pass
 
         return flags
 
