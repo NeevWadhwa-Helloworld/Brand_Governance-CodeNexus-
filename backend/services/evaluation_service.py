@@ -1,9 +1,13 @@
 import time
+import logging
 from datetime import datetime, timezone
 from typing import Dict, Any, List
 from backend.services.deterministic_engine import DeterministicEngine
 from backend.services.semantic_engine import SemanticEngine
 from backend.database import get_db
+
+logger = logging.getLogger(__name__)
+
 
 class EvaluationService:
     """
@@ -52,6 +56,19 @@ class EvaluationService:
             "ground_truth_compliance": True
         }
     ]
+
+    @staticmethod
+    def _parse_timestamp(value: Any) -> datetime:
+        if isinstance(value, datetime):
+            parsed = value
+        elif isinstance(value, str):
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        else:
+            raise ValueError("Unsupported audit timestamp type")
+
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
 
     @classmethod
     def run_benchmark(cls, org_id: str) -> Dict[str, Any]:
@@ -120,10 +137,11 @@ class EvaluationService:
         for row in approval_rows:
             if row["submitted_at"] and row["approved_at"]:
                 try:
-                    start = datetime.fromisoformat(row["submitted_at"].replace("Z", "+00:00"))
-                    end = datetime.fromisoformat(row["approved_at"].replace("Z", "+00:00"))
+                    start = cls._parse_timestamp(row["submitted_at"])
+                    end = cls._parse_timestamp(row["approved_at"])
                     measured_turnarounds.append(max(0.0, (end - start).total_seconds()))
-                except ValueError:
+                except (TypeError, ValueError):
+                    logger.warning("Skipping approval cycle with invalid audit timestamps for draft %s", row["draft_id"])
                     continue
         if measured_turnarounds:
             avg_turnaround_seconds = sum(measured_turnarounds) / len(measured_turnarounds)

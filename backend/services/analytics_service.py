@@ -1,5 +1,11 @@
+import json
+import logging
+from datetime import datetime, timezone
 from typing import Dict, Any, List
 from backend.database import get_db
+
+logger = logging.getLogger(__name__)
+
 
 class AnalyticsService:
     """
@@ -10,6 +16,8 @@ class AnalyticsService:
 
     @classmethod
     def get_dashboard_metrics(cls, org_id: str) -> Dict[str, Any]:
+        approval_cycles = {}
+        scan_durations_ms = []
         with get_db() as conn:
             cursor = conn.cursor()
 
@@ -43,7 +51,7 @@ class AnalyticsService:
             if total_resolved > 0:
                 flag_precision = round(((accepted_cnt + edited_cnt) / total_resolved) * 100, 1)
             else:
-                flag_precision = 88.5  # Baseline metric target
+                flag_precision = None
 
             # 3. First-Pass Compliance Rate
             # Proportion of initial drafts (version_num = 1) that had compliance >= 80% or 0 critical flags
@@ -58,7 +66,7 @@ class AnalyticsService:
                 pass_count = sum(1 for r in initial_revs if r['compliance_score'] >= 80.0)
                 first_pass_rate = round((pass_count / len(initial_revs)) * 100, 1)
             else:
-                first_pass_rate = 82.0
+                first_pass_rate = None
 
             # 4. Top Flagged Terms & Rules
             cursor.execute("""
@@ -86,6 +94,51 @@ class AnalyticsService:
                 ORDER BY count DESC
             """, (org_id,))
             category_breakdown = cursor.fetchall()
+
+            cursor.execute("""
+                SELECT draft_id, action, timestamp, details
+                FROM audit_logs
+                WHERE org_id = ? AND action IN ('submitted_for_approval', 'draft_approved', 'scan_completed')
+            """, (org_id,))
+            audit_rows = cursor.fetchall()
+            for row in audit_rows:
+                if row["action"] == "scan_completed":
+                    try:
+                        details = row["details"]
+                        if isinstance(details, str):
+                            details = json.loads(details)
+                        duration_ms = float(details.get("duration_ms"))
+                        if duration_ms >= 0:
+                            scan_durations_ms.append(duration_ms)
+                    except (AttributeError, TypeError, ValueError, json.JSONDecodeError):
+                        logger.warning("Skipping scan event with invalid duration for draft %s", row["draft_id"])
+                    continue
+
+                if not row["draft_id"]:
+                    continue
+                try:
+                    event_time = cls._parse_timestamp(row["timestamp"])
+                except (TypeError, ValueError):
+                    logger.warning("Skipping invalid approval timestamp for draft %s", row["draft_id"])
+                    continue
+                events = approval_cycles.setdefault(row["draft_id"], {})
+                action = row["action"]
+                if action not in events or event_time < events[action]:
+                    events[action] = event_time
+
+            measured_turnarounds = [
+                max(0.0, (events["draft_approved"] - events["submitted_for_approval"]).total_seconds())
+                for events in approval_cycles.values()
+                if "submitted_for_approval" in events and "draft_approved" in events
+            ]
+            turnaround_improvement = (
+                round(max(0.0, (1 - (sum(measured_turnarounds) / len(measured_turnarounds)) / 172800) * 100), 1)
+                if measured_turnarounds else None
+            )
+            avg_first_feedback_seconds = (
+                round(sum(scan_durations_ms) / len(scan_durations_ms) / 1000, 3)
+                if scan_durations_ms else None
+            )
 
             # 6. Actionable Governance Insights (Rule Clarification Recommendations)
             recommendations = []
@@ -121,9 +174,9 @@ class AnalyticsService:
                 "target_precision": 85.0,
                 "first_pass_compliance_rate": first_pass_rate,
                 "target_first_pass": 80.0,
-                "avg_turnaround_improvement": 64.0, # 64% faster than manual baseline
+                "avg_turnaround_improvement": turnaround_improvement,
                 "target_turnaround_improvement": 50.0,
-                "avg_first_feedback_seconds": 1.4, # Under 30s target
+                "avg_first_feedback_seconds": avg_first_feedback_seconds,
                 "target_feedback_seconds": 30.0
             },
             "top_flagged_terms": top_flagged_terms,
@@ -137,6 +190,19 @@ class AnalyticsService:
             },
             "governance_recommendations": recommendations
         }
+
+    @staticmethod
+    def _parse_timestamp(value: Any) -> datetime:
+        if isinstance(value, datetime):
+            parsed = value
+        elif isinstance(value, str):
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        else:
+            raise ValueError("Unsupported audit timestamp type")
+
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
 
     @classmethod
     def get_trends(cls, org_id: str) -> List[Dict[str, Any]]:

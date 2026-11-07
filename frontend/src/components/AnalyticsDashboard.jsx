@@ -251,20 +251,22 @@ export default function AnalyticsDashboard() {
           <div className="flex items-center justify-between text-xs text-[#7C88AB]">
             <span className="font-medium">AI Flag Precision</span>
             <span className="text-[#34D399] font-mono text-[10px] font-semibold bg-[#34D399]/10 border border-[#34D399]/20 px-2 py-0.5 rounded-full">
-              Target ≥ {summary.target_precision || 85}%
+              Target ≥ {summary.target_precision ?? 85}%
             </span>
           </div>
           <div className="text-2xl sm:text-3xl font-extrabold text-[#E8ECF8] font-mono flex items-baseline gap-2">
-            {summary.flag_precision}%
+            {summary.flag_precision == null ? 'Not measured' : `${summary.flag_precision}%`}
             <span className="text-xs font-semibold text-[#34D399] flex items-center font-sans">
               <TrendingUp className="w-3.5 h-3.5 mr-0.5" />
-              {summary.flag_precision >= (summary.target_precision || 85) ? 'Exceeds' : 'Tracking'}
+              {summary.flag_precision == null
+                ? 'Needs review decisions'
+                : summary.flag_precision >= (summary.target_precision ?? 85) ? 'Exceeds' : 'Tracking'}
             </span>
           </div>
           <div className="w-full bg-[#0A0F1E] h-1.5 rounded-full overflow-hidden border border-[#1F2A4A]/60">
             <div
               className="bg-gradient-to-r from-[#10B981] to-[#34D399] h-full rounded-full transition-all duration-700"
-              style={{ width: `${Math.min(100, summary.flag_precision || 0)}%` }}
+              style={{ width: `${Math.min(100, summary.flag_precision ?? 0)}%` }}
             />
           </div>
           <p className="text-[11px] text-[#7C88AB] leading-relaxed">
@@ -277,20 +279,24 @@ export default function AnalyticsDashboard() {
           <div className="flex items-center justify-between text-xs text-[#7C88AB]">
             <span className="font-medium">First-Pass Compliance</span>
             <span className="text-[#60A5FA] font-mono text-[10px] font-semibold bg-[#60A5FA]/10 border border-[#60A5FA]/20 px-2 py-0.5 rounded-full">
-              Target ≥ {summary.target_first_pass || 80}%
+              Target ≥ {summary.target_first_pass ?? 80}%
             </span>
           </div>
           <div className="text-2xl sm:text-3xl font-extrabold text-[#E8ECF8] font-mono flex items-baseline gap-2">
-            {summary.first_pass_compliance_rate}%
+            {summary.first_pass_compliance_rate == null
+              ? 'Not measured'
+              : `${summary.first_pass_compliance_rate}%`}
             <span className="text-xs font-semibold text-[#60A5FA] flex items-center font-sans">
               <CheckCircle2 className="w-3.5 h-3.5 mr-0.5" />
-              {summary.first_pass_compliance_rate >= (summary.target_first_pass || 80) ? 'On Target' : 'Action Required'}
+              {summary.first_pass_compliance_rate == null
+                ? 'No scanned drafts'
+                : summary.first_pass_compliance_rate >= (summary.target_first_pass ?? 80) ? 'On Target' : 'Action Required'}
             </span>
           </div>
           <div className="w-full bg-[#0A0F1E] h-1.5 rounded-full overflow-hidden border border-[#1F2A4A]/60">
             <div
               className="bg-gradient-to-r from-[#2563EB] to-[#60A5FA] h-full rounded-full transition-all duration-700"
-              style={{ width: `${Math.min(100, summary.first_pass_compliance_rate || 0)}%` }}
+              style={{ width: `${Math.min(100, summary.first_pass_compliance_rate ?? 0)}%` }}
             />
           </div>
           <p className="text-[11px] text-[#7C88AB] leading-relaxed">
@@ -303,19 +309,23 @@ export default function AnalyticsDashboard() {
           <div className="flex items-center justify-between text-xs text-[#7C88AB]">
             <span className="font-medium">Review Cycle Speedup</span>
             <span className="text-[#A78BFA] font-mono text-[10px] font-semibold bg-[#A78BFA]/10 border border-[#A78BFA]/20 px-2 py-0.5 rounded-full">
-              Target ≥ {summary.target_turnaround_improvement || 50}%
+              Target ≥ {summary.target_turnaround_improvement ?? 50}%
             </span>
           </div>
           <div className="text-2xl sm:text-3xl font-extrabold text-[#E8ECF8] font-mono flex items-baseline gap-2">
-            +{summary.avg_turnaround_improvement}%
-            <span className="text-xs font-semibold text-[#A78BFA] flex items-center font-sans">
-              <Award className="w-3.5 h-3.5 mr-0.5" /> Faster
-            </span>
+            {summary.avg_turnaround_improvement == null
+              ? 'Not measured'
+              : `+${summary.avg_turnaround_improvement}%`}
+            {summary.avg_turnaround_improvement != null && (
+              <span className="text-xs font-semibold text-[#A78BFA] flex items-center font-sans">
+                <Award className="w-3.5 h-3.5 mr-0.5" /> Faster
+              </span>
+            )}
           </div>
           <div className="w-full bg-[#0A0F1E] h-1.5 rounded-full overflow-hidden border border-[#1F2A4A]/60">
             <div
               className="bg-gradient-to-r from-[#7C3AED] to-[#A78BFA] h-full rounded-full transition-all duration-700"
-              style={{ width: `${Math.min(100, summary.avg_turnaround_improvement || 0)}%` }}
+              style={{ width: `${Math.min(100, summary.avg_turnaround_improvement ?? 0)}%` }}
             />
           </div>
           <p className="text-[11px] text-[#7C88AB] leading-relaxed">
@@ -328,23 +338,31 @@ export default function AnalyticsDashboard() {
           <div className="flex items-center justify-between text-xs text-[#7C88AB]">
             <span className="font-medium">Time to First Feedback</span>
             <span className="text-[#FBBF24] font-mono text-[10px] font-semibold bg-[#FBBF24]/10 border border-[#FBBF24]/20 px-2 py-0.5 rounded-full">
-              Target &lt; {summary.target_feedback_seconds || 30}s
+              Target &lt; {summary.target_feedback_seconds ?? 30}s
             </span>
           </div>
           <div className="text-2xl sm:text-3xl font-extrabold text-[#E8ECF8] font-mono flex items-baseline gap-2">
-            {summary.avg_first_feedback_seconds}s
-            <span className="text-xs font-semibold text-[#FBBF24] flex items-center font-sans">
-              <Clock className="w-3.5 h-3.5 mr-0.5" /> Sub-second
-            </span>
+            {summary.avg_first_feedback_seconds == null
+              ? 'Not measured'
+              : `${summary.avg_first_feedback_seconds}s`}
+            {summary.avg_first_feedback_seconds != null && (
+              <span className="text-xs font-semibold text-[#FBBF24] flex items-center font-sans">
+                <Clock className="w-3.5 h-3.5 mr-0.5" /> Measured
+              </span>
+            )}
           </div>
           <div className="w-full bg-[#0A0F1E] h-1.5 rounded-full overflow-hidden border border-[#1F2A4A]/60">
             <div
               className="bg-gradient-to-r from-[#D97706] to-[#FBBF24] h-full rounded-full transition-all duration-700"
-              style={{ width: '92%' }}
+              style={{
+                width: `${summary.avg_first_feedback_seconds == null
+                  ? 0
+                  : Math.max(0, Math.min(100, 100 - (summary.avg_first_feedback_seconds / (summary.target_feedback_seconds ?? 30)) * 100))}%`
+              }}
             />
           </div>
           <p className="text-[11px] text-[#7C88AB] leading-relaxed">
-            Combined latency of deterministic dictionary check and parallel semantic RAG pass.
+            Measured scan latency from recorded scan events; no recorded scan timing is shown as unavailable.
           </p>
         </div>
       </div>
