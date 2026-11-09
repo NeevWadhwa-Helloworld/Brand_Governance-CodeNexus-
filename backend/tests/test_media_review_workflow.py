@@ -1,10 +1,14 @@
 from contextlib import nullcontext
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 from fastapi import HTTPException
 
 from backend.routers import drafts
 from backend.schemas import TranscriptUpdate
+from backend.services.media_analyzer import MediaAnalyzer
 from backend.services.scanner import Scanner
 
 
@@ -154,3 +158,46 @@ def test_media_findings_are_linked_to_transcript_timestamps_and_video_frames():
     assert transcript_finding["end_time"] == 14.0
     assert frame_finding["frame_number"] == 3
     assert frame_finding["start_time"] == 20
+
+
+def test_video_sampling_uses_duration_to_spread_samples_across_full_asset(tmp_path):
+    output_commands = []
+
+    def fake_ffmpeg(command, **_kwargs):
+        output_commands.append(command)
+        Path(command[-1].replace("%03d", "001")).touch()
+        return SimpleNamespace(stdout="", stderr="")
+
+    with (
+        patch("backend.services.media_analyzer.shutil.which", return_value="ffmpeg"),
+        patch("backend.services.media_analyzer.subprocess.run", side_effect=fake_ffmpeg),
+        patch.object(
+            MediaAnalyzer, "_ocr_image", return_value={"available": True, "text": ""}
+        ),
+    ):
+        frames = MediaAnalyzer._analyze_video_frames(
+            tmp_path / "campaign.mp4", duration_seconds=240
+        )
+
+    assert "fps=12/240.000000" in output_commands[0]
+    assert frames[0]["timestamp_seconds"] == 0
+    assert frames[0]["ocr_available"] is True
+
+
+def test_blank_but_successfully_ocr_scanned_frames_are_not_reported_as_ocr_failure(tmp_path):
+    video_path = tmp_path / "campaign.mp4"
+    video_path.touch()
+    with (
+        patch.object(MediaAnalyzer, "_transcribe", return_value={"available": True, "text": "Verified speech"}),
+        patch.object(MediaAnalyzer, "_probe_video_duration", return_value=30.0),
+        patch.object(
+            MediaAnalyzer,
+            "_analyze_video_frames",
+            return_value=[{"text": "", "ocr_available": True, "frame_number": 1}],
+        ),
+    ):
+        result = MediaAnalyzer.analyze(str(video_path), "video")
+
+    assert "ocr" not in result["missing_capabilities"]
+    assert result["frame_sampling"]["sample_count"] == 1
+    assert result["frame_sampling"]["exhaustive"] is False

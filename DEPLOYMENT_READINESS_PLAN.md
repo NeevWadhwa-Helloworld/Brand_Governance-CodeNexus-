@@ -8,6 +8,8 @@
 - Audio upload with technical metadata, optional local Whisper transcription, and explicit human-review fallback.
 - Video upload with technical metadata, transcript/caption scanning, FFmpeg frame sampling, OCR capability reporting, and explicit human-review fallback.
 - Analytics, benchmark execution, source-of-truth management, team account creation, audit export, and audit-chain verification.
+- Staged text and text-based PDF guideline ingestion with page citations and explicit admin activation.
+- Read-only Streamable HTTP MCP tools with application JWT authorization, audit logging, request IDs, bounded inputs, and optional Redis-backed shared rate limiting.
 - Supabase PostgreSQL with pgvector support, Render/Vercel deployment
   configuration, security headers, trusted-host validation, request-size limits,
   and SQLite migration tooling.
@@ -20,8 +22,8 @@
    its original source.
 2. Move scanning and transcription/OCR into background jobs with progress and retry states.
 3. Run the embedding backfill and evaluate retrieval quality before relying on vector similarity as the primary retriever.
-4. Add TLS termination, secret management, encrypted backups, retention/deletion policies, rate limits, and MIME/type validation.
-5. Add independent reviewer-labelled evaluation data and track precision, recall, false negatives, coverage rate, latency, and processing cost.
+4. Complete production TLS/secrets, encrypted backups, retention/deletion policies, general API rate limiting, and MIME/type validation. MCP has optional Redis-backed shared limiting, but this does not cover every API.
+5. Add independent reviewer-labelled evaluation data and track precision, recall, false negatives, coverage rate, latency, and processing cost. Seeded demo examples are excluded from measured results.
 6. Add automated integration, API authorization, media, migration, and browser regression suites to CI.
 
 ## Delivery phases
@@ -50,7 +52,7 @@
 
 ### Phase 4 - governed ecosystem
 
-- Implement MCP only when multiple agent or integration clients need the same governed operations.
+- Deploy and validate the existing read-only MCP interface; add OAuth/client registration only if organization-managed approvals are required.
 - Add OAuth/webhook adapters for CMS, Google Docs, Figma, Webflow, and HubSpot.
 - Add idempotency, retries, provider health checks, and integration audit events.
 

@@ -38,6 +38,11 @@ class Settings:
     SECRET_KEY: str = os.getenv("SECRET_KEY", "")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 1440))
     ENABLE_PII_REDACTION: bool = os.getenv("ENABLE_PII_REDACTION", "True").lower() in ("true", "1", "yes")
+    INITIAL_ADMIN_EMAIL: str = os.getenv("INITIAL_ADMIN_EMAIL", "").strip().lower()
+    INITIAL_ADMIN_NAME: str = os.getenv("INITIAL_ADMIN_NAME", "").strip()
+    INITIAL_ADMIN_PASSWORD: str = os.getenv("INITIAL_ADMIN_PASSWORD", "")
+    INITIAL_ORG_NAME: str = os.getenv("INITIAL_ORG_NAME", "").strip()
+    INITIAL_ORG_SLUG: str = os.getenv("INITIAL_ORG_SLUG", "").strip().lower()
 
     # Database
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./brand_governance.db")
@@ -45,6 +50,12 @@ class Settings:
     is_postgres: bool = DATABASE_URL.startswith(("postgresql://", "postgres://"))
     MAX_UPLOAD_SIZE_MB: int = int(os.getenv("MAX_UPLOAD_SIZE_MB", "100"))
     MCP_REQUESTS_PER_MINUTE: int = int(os.getenv("MCP_REQUESTS_PER_MINUTE", "60"))
+    MCP_RATE_LIMIT_REDIS_URL: str = os.getenv("MCP_RATE_LIMIT_REDIS_URL", "").strip()
+    MCP_ALLOWED_USER_IDS: list[str] = [
+        user_id.strip()
+        for user_id in os.getenv("MCP_ALLOWED_USER_IDS", "").split(",")
+        if user_id.strip()
+    ]
 
     # AI & Model Provider Settings (Phase 5 Provider Boundary)
     MODEL_PROVIDER: str = os.getenv("MODEL_PROVIDER", "auto").strip().lower()
@@ -70,6 +81,13 @@ class Settings:
     )
 
 settings = Settings()
+
+if settings.MCP_REQUESTS_PER_MINUTE < 1:
+    raise RuntimeError("MCP_REQUESTS_PER_MINUTE must be a positive integer.")
+if settings.MCP_RATE_LIMIT_REDIS_URL and not settings.MCP_RATE_LIMIT_REDIS_URL.startswith(
+    ("redis://", "rediss://")
+):
+    raise RuntimeError("MCP_RATE_LIMIT_REDIS_URL must use redis:// or rediss://.")
 
 deployed_frontend_origin = "https://brand-governance-code-nexu.vercel.app"
 deployed_backend_host = "brand-governance-codenexus.onrender.com"

@@ -57,7 +57,7 @@ def list_evaluation_samples(current_user: dict = Depends(get_current_user)):
         cursor.execute(
             """
             SELECT s.id, s.title, s.content_type, s.expected_rules, s.applicable_rules,
-                   s.label_notes, s.reviewed_at, u.name AS reviewer_name
+                   s.label_notes, s.reviewed_at, s.is_demo, u.name AS reviewer_name
             FROM evaluation_samples s
             JOIN users u ON u.id = s.reviewer_id
             WHERE s.org_id = ? AND s.guideline_version_id = ?

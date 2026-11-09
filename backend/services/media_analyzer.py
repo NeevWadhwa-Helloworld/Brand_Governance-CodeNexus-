@@ -1,10 +1,15 @@
 import shutil
 import subprocess
 import tempfile
+import json
+import logging
+import math
 from pathlib import Path
 from typing import Any, Dict, List
 
 from backend.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class MediaAnalyzer:
@@ -35,8 +40,10 @@ class MediaAnalyzer:
 
         transcript = cls._transcribe(file_path)
         frames: List[Dict[str, Any]] = []
+        video_duration = None
         if media_type == "video":
-            frames = cls._analyze_video_frames(file_path, artifact_dir)
+            video_duration = cls._probe_video_duration(file_path)
+            frames = cls._analyze_video_frames(file_path, artifact_dir, video_duration)
 
         ocr_text = "\n".join(frame["text"] for frame in frames if frame.get("text")).strip()
         missing = []
@@ -44,7 +51,7 @@ class MediaAnalyzer:
             missing.append("speech_to_text")
         if media_type == "video" and not frames:
             missing.append("video_frame_extraction")
-        if frames and not any(frame.get("text") for frame in frames):
+        if frames and not all(frame.get("ocr_available") for frame in frames):
             missing.append("ocr")
 
         extracted_text = "\n".join(
@@ -58,10 +65,30 @@ class MediaAnalyzer:
             "transcript_confirmed": False,
             "ocr_text": ocr_text,
             "findings": frames,
+            "frame_sampling": (
+                {
+                    "method": "uniform" if video_duration else "fixed_interval_fallback",
+                    "sample_count": len(frames),
+                    "sample_limit": 12,
+                    "source_duration_seconds": video_duration,
+                    "sample_limit_reached": len(frames) >= 12,
+                    "exhaustive": False,
+                    "coverage_note": (
+                        "Frames are sampled points, not a complete review of every frame."
+                    ),
+                }
+                if media_type == "video"
+                else None
+            ),
             "capabilities": {
                 "speech_to_text": transcript["available"],
                 "video_frame_extraction": bool(frames) if media_type == "video" else None,
-                "ocr": bool(ocr_text) if media_type == "video" else None,
+                "ocr": (
+                    bool(frames) and all(frame.get("ocr_available") for frame in frames)
+                    if media_type == "video"
+                    else None
+                ),
+                "ocr_text_detected": bool(ocr_text) if media_type == "video" else None,
             },
             "missing_capabilities": missing,
             "extracted_text": extracted_text,
@@ -96,17 +123,27 @@ class MediaAnalyzer:
 
     @classmethod
     def _analyze_video_frames(
-        cls, file_path: Path, artifact_dir: Path | None = None
+        cls,
+        file_path: Path,
+        artifact_dir: Path | None = None,
+        duration_seconds: float | None = None,
     ) -> List[Dict[str, Any]]:
         ffmpeg = shutil.which("ffmpeg")
         if not ffmpeg:
             return []
         with tempfile.TemporaryDirectory(prefix="brand-frames-") as temp_dir:
             output_pattern = str(Path(temp_dir) / "frame-%03d.png")
-            sampling_interval_seconds = 10
+            sampling_interval_seconds = (
+                duration_seconds / 12 if duration_seconds and duration_seconds > 0 else 10
+            )
+            frame_rate = (
+                f"12/{duration_seconds:.6f}"
+                if duration_seconds and duration_seconds > 0
+                else "1/10"
+            )
             command = [
                 ffmpeg, "-hide_banner", "-loglevel", "error", "-i", str(file_path),
-                "-vf", "fps=1/10", "-frames:v", "12", output_pattern,
+                "-vf", f"fps={frame_rate}", "-frames:v", "12", output_pattern,
             ]
             try:
                 subprocess.run(command, check=True, capture_output=True, timeout=120)
@@ -115,10 +152,17 @@ class MediaAnalyzer:
 
             frames = sorted(Path(temp_dir).glob("frame-*.png"))
             if not frames:
-                sampling_interval_seconds = 1
+                sampling_interval_seconds = (
+                    duration_seconds / 12 if duration_seconds and duration_seconds > 0 else 1
+                )
+                fallback_rate = (
+                    f"12/{duration_seconds:.6f}"
+                    if duration_seconds and duration_seconds > 0
+                    else "1"
+                )
                 fallback_command = [
                     ffmpeg, "-hide_banner", "-loglevel", "error", "-i", str(file_path),
-                    "-vf", "fps=1", "-frames:v", "12", output_pattern,
+                    "-vf", f"fps={fallback_rate}", "-frames:v", "12", output_pattern,
                 ]
                 try:
                     subprocess.run(
@@ -149,6 +193,31 @@ class MediaAnalyzer:
                     "image_url": frame_url,
                 })
             return results
+
+    @staticmethod
+    def _probe_video_duration(file_path: Path) -> float | None:
+        ffprobe = shutil.which("ffprobe")
+        if not ffprobe:
+            return None
+        try:
+            completed = subprocess.run(
+                [
+                    ffprobe, "-v", "error", "-show_entries", "format=duration",
+                    "-of", "json", str(file_path),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=True,
+            )
+            duration = float(json.loads(completed.stdout)["format"]["duration"])
+            if not math.isfinite(duration) or duration <= 0:
+                logger.warning("Video duration probe returned an invalid duration for %s", file_path.name)
+                return None
+            return duration
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError, subprocess.SubprocessError, OSError):
+            logger.warning("Video duration unavailable; using fixed-interval frame sampling for %s", file_path.name)
+            return None
 
     @staticmethod
     def _ocr_image(file_path: Path) -> Dict[str, Any]:

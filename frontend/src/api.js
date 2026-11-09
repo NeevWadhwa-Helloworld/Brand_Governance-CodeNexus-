@@ -217,6 +217,25 @@ export const api = {
     });
     return parseResponse(res);
   },
+  async ingestGuidelinePdf(formData, userId) {
+    const res = await fetch(`${API_BASE}/guidelines/ingest/pdf`, {
+      method: 'POST',
+      headers: authHeaders(userId),
+      body: formData
+    });
+    return parseResponse(res);
+  },
+  async activateGuidelineVersion(versionId, userId) {
+    const res = await fetch(`${API_BASE}/guidelines/versions/${versionId}/activate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...authHeaders(userId)
+      },
+      body: JSON.stringify({ confirmed: true })
+    });
+    return parseResponse(res);
+  },
   async getTerminology() {
     const res = await fetch(`${API_BASE}/guidelines/terminology`, { headers: authHeaders() });
     return parseResponse(res);

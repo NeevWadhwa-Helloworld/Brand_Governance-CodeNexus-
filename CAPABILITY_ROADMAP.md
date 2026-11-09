@@ -41,7 +41,9 @@ covered.
 
 Creators can now edit and explicitly confirm extracted or manually supplied
 transcripts, see the extraction/confirmation state and review gaps, and rescan.
-Video frame previews link to sampled points in the source video. Unconfirmed
+Video frame previews link to sampled points in the source video. When duration is
+available, up to 12 frames are sampled across the video; this is partial, not
+exhaustive visual review. Unconfirmed
 transcripts or unavailable required extraction stay in human review and cannot
 be submitted as covered content.
 
@@ -73,17 +75,18 @@ read-only: it cannot return draft body text, edit or create drafts, trigger scan
 approve/publish content, or access arbitrary database/filesystem paths. Requests
 require the application's bearer JWT, use the authenticated user's organization,
 enforce governance roles, and audit tool calls and denied cross-organization
-lookups. Tool input sizes and per-user request frequency are bounded. The
-in-memory rate limit is per backend process, so a scaled deployment still needs
-an edge or shared rate limiter. This is user-token authorization, not a
-server-side MCP client registry or OAuth client-approval flow.
+lookups. Tool input sizes and per-user request frequency are bounded. The in-memory
+limiter is per backend process; an optional Redis-backed shared limiter is available
+for multi-instance deployment and fails closed if configured Redis is unavailable.
+An optional authenticated-user allowlist is also available. This is user-token
+authorization, not a server-side MCP client registry or OAuth client-approval flow.
 
 Remaining implementation sequence:
 
 1. Deploy over HTTPS and validate an organization's chosen MCP client.
 2. Add OAuth/client registration if organization-managed client approvals are
    required.
-3. Add a shared or edge-enforced rate limit before horizontal scaling.
+3. Configure and verify shared Redis or edge rate limiting before horizontal scaling.
 4. Keep approval and publishing behind the application's explicit human review
    workflow.
 

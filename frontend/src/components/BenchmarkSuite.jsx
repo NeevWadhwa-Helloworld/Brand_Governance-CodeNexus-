@@ -223,7 +223,7 @@ export default function BenchmarkSuite({ currentUser }) {
 
           {dataset.samples.length > 0 && (
             <div className="space-y-2">
-              <h4 className="text-xs font-bold text-[#E8ECF8]">Current reviewer-labeled examples</h4>
+              <h4 className="text-xs font-bold text-[#E8ECF8]">Dataset examples</h4>
               <div className="grid gap-2 sm:grid-cols-2">
                 {dataset.samples.map(sample => (
                   <div key={sample.id} className="rounded-lg border border-[#1F2A4A] bg-[#0E1428] p-3 text-[11px]">
@@ -231,6 +231,13 @@ export default function BenchmarkSuite({ currentUser }) {
                       <span className="font-semibold text-[#E8ECF8]">{sample.title}</span>
                       <span className="capitalize text-[#7C88AB]">{sample.content_type} · {sample.reviewer_name}</span>
                     </div>
+                    <span className={`mt-1 inline-flex rounded border px-1.5 py-0.5 text-[10px] font-semibold ${
+                      sample.is_demo
+                        ? 'border-[#FBBF24]/30 bg-[#FBBF24]/10 text-[#FBBF24]'
+                        : 'border-[#34D399]/30 bg-[#34D399]/10 text-[#34D399]'
+                    }`}>
+                      {sample.is_demo ? 'Seeded demo · excluded from metrics' : 'Reviewer-labeled'}
+                    </span>
                     <p className="mt-1 text-[#AAB4D0]">
                       Violations: {sample.expected_rules.length ? sample.expected_rules.join(', ') : 'None (benign)'}
                     </p>

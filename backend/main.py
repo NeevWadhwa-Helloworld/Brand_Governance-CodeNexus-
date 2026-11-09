@@ -1,4 +1,7 @@
 import uvicorn
+import logging
+import time
+from uuid import uuid4
 from contextlib import AsyncExitStack, asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -10,13 +13,20 @@ from backend.config import settings
 from backend.database import init_db
 from backend.seed_data import seed_database
 from backend.routers import auth, guidelines, drafts, flags, analytics, evaluation, audit, integrations
-from backend.services.mcp_server import mcp_http_app, server as mcp_server
+from backend.services.mcp_server import (
+    initialize_rate_limiter,
+    mcp_http_app,
+    server as mcp_server,
+)
+
+logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: Initialize schema and seed data
     init_db()
     await seed_database()
+    await initialize_rate_limiter()
     async with AsyncExitStack() as stack:
         await stack.enter_async_context(mcp_server.session_manager.run())
         yield
@@ -28,19 +38,55 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    request_id = getattr(request.state, "request_id", str(uuid4()))
+    logger.exception(
+        "Unhandled request error",
+        exc_info=exc,
+        extra={"request_id": request_id, "method": request.method, "path": request.url.path},
+    )
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error", "request_id": request_id},
+        headers={"X-Request-ID": request_id},
+    )
+
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.TRUSTED_HOSTS)
 
 @app.middleware("http")
 async def security_middleware(request: Request, call_next):
+    request_id = str(uuid4())
+    request.state.request_id = request_id
     content_length = request.headers.get("content-length")
     if content_length:
         try:
             too_large = int(content_length) > settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
         except ValueError:
-            return JSONResponse(status_code=400, content={"detail": "Invalid Content-Length header"})
+            return JSONResponse(
+                status_code=400,
+                content={"detail": "Invalid Content-Length header"},
+                headers={"X-Request-ID": request_id},
+            )
         if too_large:
-            return JSONResponse(status_code=413, content={"detail": "Request payload is too large"})
+            return JSONResponse(
+                status_code=413,
+                content={"detail": "Request payload is too large"},
+                headers={"X-Request-ID": request_id},
+            )
+    started_at = time.perf_counter()
     response = await call_next(request)
+    response.headers["X-Request-ID"] = request_id
+    logger.info(
+        "Request completed",
+        extra={
+            "request_id": request_id,
+            "method": request.method,
+            "path": request.url.path,
+            "status_code": response.status_code,
+            "duration_ms": round((time.perf_counter() - started_at) * 1000, 2),
+        },
+    )
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
@@ -103,6 +149,11 @@ def system_info():
             "endpoint": "/mcp",
             "protocol": "Model Context Protocol (Streamable HTTP)",
             "rate_limit_per_minute": settings.MCP_REQUESTS_PER_MINUTE,
+            "rate_limit_backend": (
+                "redis"
+                if settings.MCP_RATE_LIMIT_REDIS_URL
+                else "process_memory"
+            ),
             "tools": ["get_brand_rules", "list_drafts", "get_draft_findings"],
             "mode": "read_only"
         },
@@ -123,7 +174,7 @@ app = CORSMiddleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["MCP-Session-Id"],
+    expose_headers=["MCP-Session-Id", "X-Request-ID"],
 )
 
 if __name__ == "__main__":

@@ -147,12 +147,12 @@ can disappear after a restart.
 - **Review Cycle Turnaround**: Quantifies turnaround time reduction vs manual baseline (target $\ge 50\%$ faster).
 - **Actionable Clarification Insights**: Automated recommendations on rules needing refinement.
 
-### 5. Section 9.1 Evaluation Benchmark Suite
-- Validates the platform against the exact targets specified in **Section 9.1** of the report on a labelled dataset of test drafts:
-  - **Flag Precision**: Target $\ge 85\%$ (Achieved: $100\%$ on ground truth suite)
-  - **Review Turnaround**: Target $\ge 50\%$ faster (Achieved: $68.5\%$ faster)
-  - **First-Pass Compliance**: Target $\ge 80\%$ (Achieved: $85\%$)
-  - **Time to First Feedback**: Target $< 30\text{ s}$ (Achieved: $\approx 0.05\text{ s}$ sub-second scan)
+- **Reviewer-Labeled Evaluation Suite**: Reviewers can label examples against an active
+  guideline version. The report computes rule-level precision, recall, false-positive
+  rate, retrieval coverage, and latency only from non-demo reviewer-labeled examples.
+  Seeded demonstration examples are excluded. Results are unmeasured when no real
+  labeled examples are available; the current small dataset is not a production-quality
+  benchmark or evidence for previously stated accuracy or turnaround targets.
 
 ### 6. Security, Isolation & Privacy (Section 6.2)
 - Strict multi-tenant organization isolation (`org_inkloom`).
@@ -200,12 +200,13 @@ npm run dev
 
 ---
 
-## 🧪 Testing the Benchmark Suite
-To execute the Section 9.1 evaluation benchmark from the command line:
+## 🧪 Running the Evaluation Suite
+To execute the benchmark for the local Inkloom organization:
 ```bash
 python -c "from backend.services.evaluation_service import EvaluationService; print(EvaluationService.run_benchmark('org_inkloom'))"
 ```
-Or click **"Execute Labelled Benchmark"** on the web UI's **Benchmark Suite** tab!
+Or click **"Execute Labelled Benchmark"** on the web UI's **Benchmark Suite** tab.
+Only non-demo examples explicitly labeled by a reviewer or administrator are counted.
 
 ---
 

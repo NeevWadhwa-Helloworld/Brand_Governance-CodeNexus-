@@ -26,7 +26,7 @@ organizations
 |---|---|
 | `organizations` | Tenant boundary for all application records. |
 | `users` | Organization members and hashed passwords; roles are creator, reviewer, or admin. |
-| `guideline_versions` | Versioned Source-of-Truth documents and their raw imported text. |
+| `guideline_versions` | Versioned Source-of-Truth documents and their raw imported text; `status` tracks pending, active, or archived ingestion versions. |
 | `rules` | Numbered policy clauses retrieved by the scanner. `embedding vector(768)` stores Gemini embeddings used by pgvector similarity search. |
 | `terminology_entries` | Banned terms and preferred replacements. |
 | `approved_facts` | Citable approved claims and metrics. |
@@ -41,6 +41,12 @@ organizations
 All API queries retain organization filters. PostgreSQL foreign keys enforce
 record ownership relationships, while application authorization enforces role
 and tenant access.
+
+Admins can paste text/Markdown or upload an unencrypted, text-based PDF (up to
+15 MB) in Source of Truth. PDF rules retain their source page in the preview
+and stored rule details. Ingestion creates a pending version; an explicit
+administrator confirmation is required to activate it. Database initialization
+migrates existing `guideline_versions` tables to add the version status column.
 
 ## Deployment
 

@@ -1595,9 +1595,17 @@ function MediaAnalysis({ analysis, flags = [], onSeek, onFrameSeek }) {
           ? ` • Video frame extraction: ${analysis.capabilities.video_frame_extraction ? 'available' : 'unavailable'}`
           : ''}
         {analysis.capabilities?.ocr !== null && analysis.capabilities?.ocr !== undefined
-          ? ` • Frame OCR: ${analysis.capabilities.ocr ? 'text detected' : 'unavailable or no text detected'}`
+          ? ` • Frame OCR: ${analysis.capabilities.ocr ? (analysis.capabilities.ocr_text_detected ? 'available, text detected' : 'available, no text detected') : 'unavailable'}`
           : ''}
       </div>
+      {analysis.frame_sampling && (
+        <div role="note" className="rounded-lg border border-[#FBBF24]/20 bg-[#FBBF24]/5 p-2 text-[#FBBF24]">
+          Partial video evidence: {analysis.frame_sampling.sample_count} sampled frame(s)
+          {analysis.frame_sampling.source_duration_seconds
+            ? ` across ${analysis.frame_sampling.source_duration_seconds.toFixed(1)} seconds`
+            : ''}. Sampling is not exhaustive; inspect the full video before approval.
+        </div>
+      )}
       {analysis.ocr_text && (
         <div className="line-clamp-3">
           <span className="text-[#7C88AB]">OCR:</span> {analysis.ocr_text}

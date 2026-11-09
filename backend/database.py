@@ -100,7 +100,8 @@ def _init_postgres_db():
         CREATE TABLE IF NOT EXISTS guideline_versions (
             id TEXT PRIMARY KEY, org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
             version TEXT NOT NULL, title TEXT NOT NULL, raw_content TEXT,
-            is_active INTEGER DEFAULT 1, uploaded_at TEXT NOT NULL
+            is_active INTEGER DEFAULT 1, uploaded_at TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'active'
         );
         CREATE TABLE IF NOT EXISTS rules (
             id TEXT PRIMARY KEY, version_id TEXT NOT NULL REFERENCES guideline_versions(id) ON DELETE CASCADE,
@@ -179,7 +180,8 @@ def _init_postgres_db():
             applicable_rules TEXT NOT NULL,
             label_notes TEXT,
             reviewed_at TEXT NOT NULL,
-            created_at TEXT NOT NULL
+            created_at TEXT NOT NULL,
+            is_demo BOOLEAN NOT NULL DEFAULT FALSE
         );
         CREATE INDEX IF NOT EXISTS idx_rules_version ON rules(version_id);
         CREATE INDEX IF NOT EXISTS idx_flags_revision ON flags(revision_id);
@@ -190,7 +192,24 @@ def _init_postgres_db():
         """)
         cursor.execute("ALTER TABLE rules ADD COLUMN IF NOT EXISTS embedding_json TEXT")
         cursor.execute(
+            "ALTER TABLE guideline_versions ADD COLUMN IF NOT EXISTS "
+            "status TEXT NOT NULL DEFAULT 'active'"
+        )
+        cursor.execute(
             "ALTER TABLE rules ADD COLUMN IF NOT EXISTS embedding vector(768)"
+        )
+        cursor.execute(
+            "ALTER TABLE evaluation_samples ADD COLUMN IF NOT EXISTS "
+            "is_demo BOOLEAN NOT NULL DEFAULT FALSE"
+        )
+        cursor.execute(
+            """
+            UPDATE evaluation_samples SET is_demo = TRUE
+            WHERE id IN (
+                'eval_sample_01', 'eval_sample_02', 'eval_sample_03', 'eval_sample_04',
+                'eval_sample_05', 'eval_sample_06', 'eval_sample_07', 'eval_sample_08'
+            )
+            """
         )
         cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_rules_embedding ON rules "
@@ -228,13 +247,14 @@ def _init_sqlite_db():
         user_columns = {row["name"] for row in cursor.fetchall()}
         if "password_hash" not in user_columns:
             cursor.execute("ALTER TABLE users ADD COLUMN password_hash TEXT")
-        default_password_hash = hashlib.pbkdf2_hmac(
-            "sha256", b"inkloom-demo", settings.SECRET_KEY.encode(), 120_000
-        ).hex()
-        cursor.execute(
-            "UPDATE users SET password_hash = ? WHERE password_hash IS NULL",
-            (default_password_hash,)
-        )
+        if settings.ENVIRONMENT.lower() not in {"production", "staging"}:
+            default_password_hash = hashlib.pbkdf2_hmac(
+                "sha256", b"inkloom-demo", settings.SECRET_KEY.encode(), 120_000
+            ).hex()
+            cursor.execute(
+                "UPDATE users SET password_hash = ? WHERE password_hash IS NULL",
+                (default_password_hash,)
+            )
 
         # 3. Guideline Versions
         cursor.execute("""
@@ -246,9 +266,16 @@ def _init_sqlite_db():
             raw_content TEXT,
             is_active INTEGER DEFAULT 1,
             uploaded_at TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'active',
             FOREIGN KEY (org_id) REFERENCES organizations(id) ON DELETE CASCADE
         );
         """)
+        cursor.execute("PRAGMA table_info(guideline_versions)")
+        guideline_version_columns = {row["name"] for row in cursor.fetchall()}
+        if "status" not in guideline_version_columns:
+            cursor.execute(
+                "ALTER TABLE guideline_versions ADD COLUMN status TEXT NOT NULL DEFAULT 'active'"
+            )
 
         # 4. Rules
         cursor.execute("""
@@ -519,6 +546,7 @@ def _init_sqlite_db():
             label_notes TEXT,
             reviewed_at TEXT NOT NULL,
             created_at TEXT NOT NULL,
+            is_demo INTEGER NOT NULL DEFAULT 0,
             FOREIGN KEY (org_id) REFERENCES organizations(id) ON DELETE CASCADE,
             FOREIGN KEY (guideline_version_id) REFERENCES guideline_versions(id) ON DELETE CASCADE,
             FOREIGN KEY (reviewer_id) REFERENCES users(id)
@@ -527,6 +555,21 @@ def _init_sqlite_db():
         cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_evaluation_samples_org_version "
             "ON evaluation_samples(org_id, guideline_version_id, reviewed_at)"
+        )
+        cursor.execute("PRAGMA table_info(evaluation_samples)")
+        evaluation_columns = {row["name"] for row in cursor.fetchall()}
+        if "is_demo" not in evaluation_columns:
+            cursor.execute(
+                "ALTER TABLE evaluation_samples ADD COLUMN is_demo INTEGER NOT NULL DEFAULT 0"
+            )
+        cursor.execute(
+            """
+            UPDATE evaluation_samples SET is_demo = 1
+            WHERE id IN (
+                'eval_sample_01', 'eval_sample_02', 'eval_sample_03', 'eval_sample_04',
+                'eval_sample_05', 'eval_sample_06', 'eval_sample_07', 'eval_sample_08'
+            )
+            """
         )
         cursor.execute("PRAGMA table_info(audit_logs)")
         audit_columns = {row["name"] for row in cursor.fetchall()}

@@ -1,7 +1,9 @@
 import uuid
 import asyncio
 import hashlib
+import hmac
 import json
+import re
 from datetime import datetime, timezone
 from backend.database import get_db, init_db
 from backend.services.scanner import Scanner
@@ -148,15 +150,145 @@ def seed_evaluation_samples(conn, org_id: str = "org_inkloom", version_id: str =
             INSERT INTO evaluation_samples (
                 id, org_id, guideline_version_id, reviewer_id, title,
                 content_type, content_text, media_filename, expected_rules,
-                applicable_rules, label_notes, reviewed_at, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                applicable_rules, label_notes, reviewed_at, created_at, is_demo
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)
             """,
             item,
         )
     print(f"[Seed] Successfully seeded {len(samples)} human-reviewed evaluation samples.")
 
+
+def _bootstrap_production_admin(cursor, org_id: str, now: str):
+    from backend.config import settings
+
+    email = settings.INITIAL_ADMIN_EMAIL
+    name = settings.INITIAL_ADMIN_NAME
+    password = settings.INITIAL_ADMIN_PASSWORD
+    if not email or not name or len(password) < 16:
+        raise RuntimeError(
+            "Production has no administrator. Configure INITIAL_ADMIN_EMAIL, "
+            "INITIAL_ADMIN_NAME, and a 16-character INITIAL_ADMIN_PASSWORD once, "
+            "or provision an administrator directly."
+        )
+    if "@" not in email or any(character.isspace() for character in email):
+        raise RuntimeError("INITIAL_ADMIN_EMAIL must be a valid email address.")
+    if len(email) > 254 or len(name) > 200:
+        raise RuntimeError("Initial administrator email or name is too long.")
+
+    cursor.execute("SELECT id FROM users WHERE email = ?", (email,))
+    if cursor.fetchone():
+        raise RuntimeError(
+            "INITIAL_ADMIN_EMAIL already exists; do not promote an existing account automatically."
+        )
+    cursor.execute(
+        """
+        INSERT INTO users (id, org_id, email, name, role, avatar, created_at, password_hash)
+        VALUES (?, ?, ?, ?, 'admin', NULL, ?, ?)
+        """,
+        (
+            f"user_{uuid.uuid4().hex[:16]}",
+            org_id,
+            email,
+            name,
+            now,
+            _hash_password(password),
+        ),
+    )
+
+
+def _bootstrap_production_database():
+    from backend.config import settings
+
+    now = datetime.now(timezone.utc).isoformat()
+    with get_db() as conn:
+        cursor = conn.cursor()
+        org_slug = settings.INITIAL_ORG_SLUG or "inkloom"
+        cursor.execute("SELECT id FROM organizations WHERE slug = ?", (org_slug,))
+        org = cursor.fetchone()
+        if org:
+            demo_password_hash = _hash_password("inkloom-demo")
+            cursor.execute(
+                "SELECT id, email, role, password_hash FROM users WHERE org_id = ?",
+                (org["id"],),
+            )
+            users = cursor.fetchall()
+            for user in users:
+                if user["password_hash"] and hmac.compare_digest(
+                    user["password_hash"], demo_password_hash
+                ):
+                    cursor.execute(
+                        "UPDATE users SET password_hash = NULL WHERE id = ?",
+                        (user["id"],),
+                    )
+            cursor.execute(
+                "SELECT id FROM users WHERE org_id = ? AND role = 'admin' "
+                "AND password_hash IS NOT NULL AND password_hash <> '' LIMIT 1",
+                (org["id"],),
+            )
+            if cursor.fetchone():
+                return
+
+            if settings.INITIAL_ADMIN_EMAIL:
+                cursor.execute(
+                    "SELECT id, org_id, role, password_hash FROM users WHERE email = ?",
+                    (settings.INITIAL_ADMIN_EMAIL,),
+                )
+                existing_user = cursor.fetchone()
+                if existing_user:
+                    if existing_user["org_id"] != org["id"] or existing_user["role"] != "admin":
+                        raise RuntimeError(
+                            "INITIAL_ADMIN_EMAIL belongs to a non-administrator or another organization."
+                        )
+                    if not existing_user["password_hash"]:
+                        if len(settings.INITIAL_ADMIN_PASSWORD) < 16 or not settings.INITIAL_ADMIN_NAME:
+                            raise RuntimeError(
+                                "Configure INITIAL_ADMIN_NAME and a 16-character "
+                                "INITIAL_ADMIN_PASSWORD to reset the initial administrator."
+                            )
+                        cursor.execute(
+                            "UPDATE users SET name = ?, password_hash = ? WHERE id = ?",
+                            (
+                                settings.INITIAL_ADMIN_NAME,
+                                _hash_password(settings.INITIAL_ADMIN_PASSWORD),
+                                existing_user["id"],
+                            ),
+                        )
+                        print("[Seed] Reset the initial production administrator password.")
+                        return
+                else:
+                    _bootstrap_production_admin(cursor, org["id"], now)
+                    print("[Seed] Provisioned the initial production administrator.")
+                    return
+
+            raise RuntimeError(
+                "Production has no administrator with a usable password. Set "
+                "INITIAL_ADMIN_EMAIL, INITIAL_ADMIN_NAME, and a 16-character "
+                "INITIAL_ADMIN_PASSWORD for a one-time bootstrap."
+            )
+
+        org_name = settings.INITIAL_ORG_NAME
+        org_slug = settings.INITIAL_ORG_SLUG
+        if not org_name or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", org_slug):
+            raise RuntimeError(
+                "Refusing to seed demo data in production. Configure INITIAL_ORG_NAME "
+                "and INITIAL_ORG_SLUG with the initial administrator settings."
+            )
+        org_id = f"org_{uuid.uuid4().hex[:16]}"
+        cursor.execute(
+            "INSERT INTO organizations (id, name, slug, created_at) VALUES (?, ?, ?, ?)",
+            (org_id, org_name, org_slug, now),
+        )
+        _bootstrap_production_admin(cursor, org_id, now)
+        print("[Seed] Provisioned the initial production organization administrator.")
+
+
 async def seed_database():
     init_db()
+
+    from backend.config import settings
+    if settings.ENVIRONMENT.lower() in {"production", "staging"}:
+        _bootstrap_production_database()
+        return
 
     with get_db() as conn:
         cursor = conn.cursor()

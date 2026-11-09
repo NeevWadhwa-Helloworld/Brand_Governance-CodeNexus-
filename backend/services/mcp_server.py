@@ -1,8 +1,12 @@
 from collections import deque
+from contextvars import ContextVar
+from hashlib import sha256
+import logging
 from math import ceil
 from threading import Lock
 from time import monotonic
 from typing import Any
+from uuid import uuid4
 
 from fastapi import HTTPException
 from mcp.server import MCPServer
@@ -10,6 +14,8 @@ from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import BaseModel
+from redis import Redis
+from redis.exceptions import RedisError
 from starlette.concurrency import run_in_threadpool
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -20,6 +26,9 @@ from backend.database import get_db
 from backend.dependencies import get_user_from_access_token
 from backend.services.audit_service import AuditService
 from backend.services.rag_service import RAGService
+
+logger = logging.getLogger(__name__)
+mcp_request_id: ContextVar[str | None] = ContextVar("mcp_request_id", default=None)
 
 
 class BrandRule(BaseModel):
@@ -93,35 +102,135 @@ class UserRequestLimiter:
             return None
 
 
-_request_limiter = UserRequestLimiter(settings.MCP_REQUESTS_PER_MINUTE)
+class RateLimiterUnavailable(RuntimeError):
+    pass
+
+
+class RedisUserRequestLimiter:
+    _SCRIPT = """
+        local time = redis.call('TIME')
+        local now = (time[1] * 1000) + math.floor(time[2] / 1000)
+        local window = tonumber(ARGV[1])
+        local limit = tonumber(ARGV[2])
+        redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', now - window)
+        local count = redis.call('ZCARD', KEYS[1])
+        if count >= limit then
+            local oldest = redis.call('ZRANGE', KEYS[1], 0, 0, 'WITHSCORES')
+            return math.max(1, math.ceil(window - (now - tonumber(oldest[2]))))
+        end
+        redis.call('ZADD', KEYS[1], now, tostring(now) .. ':' .. ARGV[3])
+        redis.call('EXPIRE', KEYS[1], 61)
+        return 0
+    """
+
+    def __init__(self, requests_per_minute: int, redis_url: str):
+        if requests_per_minute < 1:
+            raise RuntimeError("MCP_REQUESTS_PER_MINUTE must be a positive integer.")
+        if not redis_url.startswith(("redis://", "rediss://")):
+            raise RuntimeError("MCP_RATE_LIMIT_REDIS_URL must use redis:// or rediss://.")
+        self.requests_per_minute = requests_per_minute
+        self._client = Redis.from_url(
+            redis_url,
+            socket_connect_timeout=3,
+            socket_timeout=3,
+            health_check_interval=30,
+        )
+
+    def initialize(self) -> None:
+        try:
+            self._client.ping()
+        except RedisError as exc:
+            raise RuntimeError("Configured MCP Redis rate limiter is unavailable.") from exc
+
+    def retry_after(self, user_id: str) -> int | None:
+        user_key = sha256(user_id.encode("utf-8")).hexdigest()
+        try:
+            retry_after_ms = self._client.eval(
+                self._SCRIPT,
+                1,
+                f"inkloom:mcp:rate-limit:{user_key}",
+                60_000,
+                self.requests_per_minute,
+                uuid4().hex,
+            )
+        except RedisError as exc:
+            raise RateLimiterUnavailable("Configured MCP Redis rate limiter is unavailable.") from exc
+        retry_after = int(retry_after_ms)
+        return ceil(retry_after / 1000) if retry_after else None
+
+
+def create_request_limiter():
+    if settings.MCP_RATE_LIMIT_REDIS_URL:
+        return RedisUserRequestLimiter(
+            settings.MCP_REQUESTS_PER_MINUTE,
+            settings.MCP_RATE_LIMIT_REDIS_URL,
+        )
+    return UserRequestLimiter(settings.MCP_REQUESTS_PER_MINUTE)
+
+
+_request_limiter = create_request_limiter()
+
+
+async def initialize_rate_limiter() -> None:
+    if isinstance(_request_limiter, RedisUserRequestLimiter):
+        await run_in_threadpool(_request_limiter.initialize)
+
+
+def _is_user_allowed(user: dict[str, Any]) -> bool:
+    return not settings.MCP_ALLOWED_USER_IDS or user.get("id") in settings.MCP_ALLOWED_USER_IDS
 
 
 class MCPBearerAuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
-        authorization = request.headers.get("authorization", "")
-        scheme, _, token = authorization.partition(" ")
-        if scheme.lower() != "bearer" or not token.strip():
-            return JSONResponse(
-                status_code=401,
-                content={"detail": "Authentication required"},
-                headers={"WWW-Authenticate": "Bearer"},
-            )
+        request_id = str(uuid4())
+        request.state.request_id = request_id
+        context_token = mcp_request_id.set(request_id)
         try:
-            user = await run_in_threadpool(get_user_from_access_token, token.strip())
-        except HTTPException as exc:
-            return JSONResponse(
-                status_code=exc.status_code,
-                content={"detail": str(exc.detail)},
-                headers={"WWW-Authenticate": "Bearer"} if exc.status_code == 401 else None,
-            )
-        retry_after = _request_limiter.retry_after(user["id"])
-        if retry_after is not None:
-            return JSONResponse(
-                status_code=429,
-                content={"detail": "MCP request rate limit exceeded"},
-                headers={"Retry-After": str(retry_after)},
-            )
-        return await call_next(request)
+            authorization = request.headers.get("authorization", "")
+            scheme, _, token = authorization.partition(" ")
+            if scheme.lower() != "bearer" or not token.strip():
+                response = JSONResponse(
+                    status_code=401,
+                    content={"detail": "Authentication required"},
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            else:
+                try:
+                    user = await run_in_threadpool(get_user_from_access_token, token.strip())
+                    if not _is_user_allowed(user):
+                        response = JSONResponse(
+                            status_code=403,
+                            content={"detail": "This authenticated user is not enabled for MCP access"},
+                        )
+                    else:
+                        retry_after = await run_in_threadpool(_request_limiter.retry_after, user["id"])
+                        if retry_after is not None:
+                            response = JSONResponse(
+                                status_code=429,
+                                content={"detail": "MCP request rate limit exceeded"},
+                                headers={"Retry-After": str(retry_after)},
+                            )
+                        else:
+                            response = await call_next(request)
+                except HTTPException as exc:
+                    response = JSONResponse(
+                        status_code=exc.status_code,
+                        content={"detail": str(exc.detail)},
+                        headers={"WWW-Authenticate": "Bearer"} if exc.status_code == 401 else None,
+                    )
+                except RateLimiterUnavailable:
+                    logger.exception(
+                        "MCP Redis rate limiter request failed",
+                        extra={"request_id": request_id},
+                    )
+                    response = JSONResponse(
+                        status_code=503,
+                        content={"detail": "MCP rate limiter is unavailable"},
+                    )
+        finally:
+            mcp_request_id.reset(context_token)
+        response.headers["X-Request-ID"] = request_id
+        return response
 
 
 server = MCPServer(
@@ -141,9 +250,12 @@ def _authenticated_user(ctx: Context) -> dict[str, Any]:
     if scheme.lower() != "bearer" or not token.strip():
         raise ToolError("Authentication required. Provide a valid bearer access token.")
     try:
-        return get_user_from_access_token(token.strip())
+        user = get_user_from_access_token(token.strip())
     except HTTPException as exc:
         raise ToolError(str(exc.detail)) from exc
+    if not _is_user_allowed(user):
+        raise ToolError("This authenticated user is not enabled for MCP access.")
+    return user
 
 
 def _require_governance_role(user: dict[str, Any]) -> None:

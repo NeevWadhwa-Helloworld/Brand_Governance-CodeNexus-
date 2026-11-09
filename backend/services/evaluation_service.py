@@ -204,7 +204,7 @@ class EvaluationService:
                     SELECT id, title, content_type, content_text, media_filename,
                            expected_rules, applicable_rules, reviewed_at
                     FROM evaluation_samples
-                    WHERE org_id = ? AND guideline_version_id = ?
+                    WHERE org_id = ? AND guideline_version_id = ? AND is_demo = FALSE
                     ORDER BY reviewed_at ASC, id ASC
                     """,
                     (org_id, active_version["id"]),

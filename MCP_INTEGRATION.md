@@ -33,8 +33,28 @@ These tools do not return draft body text, create or change content, trigger a
 scan, approve content, publish content, or access arbitrary database/filesystem
 paths. Unknown or out-of-organization draft IDs return the same not-found error.
 Successful calls and denied cross-organization lookups are audited. Request
-bodies, tool inputs, and per-user request frequency are bounded. The rate limiter
-is process-local; multi-instance deployments need an edge/shared rate limit.
+bodies, tool inputs, and per-user request frequency are bounded. Each MCP HTTP
+response includes a server-generated `X-Request-ID` for support correlation; the
+same ID is available in MCP request log context. Do not treat it as an
+authentication credential.
+
+By default, the rate limiter is process-local, suitable for local development
+and single-process use. For multi-instance deployments, set
+`MCP_RATE_LIMIT_REDIS_URL` to a protected `redis://` or `rediss://` endpoint.
+The shared Redis limiter is atomic across instances and applies the configured
+`MCP_REQUESTS_PER_MINUTE` per authenticated user. Redis is checked at startup;
+the service fails startup if the configured Redis endpoint cannot be reached,
+and returns HTTP 503 rather than silently dropping back to local limits if
+Redis becomes unavailable. Store the URL (including any password) as a hosting
+provider secret, not in source control. Redis hosting and credentials are not
+included with this repository.
+
+Optionally set `MCP_ALLOWED_USER_IDS` to a comma-separated list of Inkloom user
+IDs. This is an additional allowlist applied only after bearer JWT validation;
+it does not register MCP client identities or replace/relax JWT authentication.
+An unset or empty list allows any otherwise-valid user JWT, preserving the
+default behavior. This is a principal allowlist, not a client allowlist; MCP
+client registration is not implemented.
 
 Use the web application to create and scan drafts. Then use `list_drafts` to
 identify a draft and `get_draft_findings` to retrieve its latest saved scan.

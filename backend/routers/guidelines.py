@@ -6,7 +6,7 @@ from pathlib import Path
 from datetime import datetime
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Header, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from backend.database import get_db
 from backend.config import settings
 from backend.schemas import (
@@ -17,6 +17,10 @@ from backend.schemas import (
 from backend.services.rag_service import RAGService
 from backend.services.embedding_service import EmbeddingService
 from backend.services.audit_service import AuditService
+from backend.services.guideline_ingestion import (
+    MAX_GUIDELINE_PDF_BYTES,
+    extract_pdf_rules,
+)
 from backend.dependencies import require_role, get_current_user, organization_scope
 
 router = APIRouter(
@@ -26,9 +30,12 @@ router = APIRouter(
 )
 
 class IngestRequest(BaseModel):
-    title: str
-    version: str
-    content: str
+    title: str = Field(min_length=1, max_length=200)
+    version: str = Field(min_length=1, max_length=64)
+    content: str = Field(min_length=1, max_length=2_000_000)
+
+class ActivateGuidelineRequest(BaseModel):
+    confirmed: bool
 
 def _current_org_id(
     org_id: str | None = None,
@@ -127,7 +134,6 @@ def ingest_guidelines(
     org_id: str = Depends(_admin_org_id),
     current_user: dict = Depends(require_role("admin"))
 ):
-    user_id = current_user['id']
     extracted_rules = RAGService.split_and_extract_rules(req.content)
     if not extracted_rules:
         extracted_rules = [
@@ -135,16 +141,74 @@ def ingest_guidelines(
             for idx, line in enumerate(req.content.splitlines()) if len(line.strip()) > 10
         ]
 
+    return _stage_guideline_version(
+        req.title, req.version, req.content, extracted_rules, org_id, current_user
+    )
+
+@router.post("/ingest/pdf")
+async def ingest_pdf_guidelines(
+    title: str = Form(...),
+    version: str = Form(...),
+    file: UploadFile = File(...),
+    org_id: str = Depends(_admin_org_id),
+    current_user: dict = Depends(require_role("admin")),
+):
+    title = title.strip()
+    version = version.strip()
+    if not title or len(title) > 200:
+        raise HTTPException(status_code=422, detail="title must contain 1 to 200 characters.")
+    if not version or len(version) > 64:
+        raise HTTPException(status_code=422, detail="version must contain 1 to 64 characters.")
+    filename = (file.filename or "").lower()
+    if not filename.endswith(".pdf") or file.content_type not in (
+        "application/pdf", "application/octet-stream"
+    ):
+        raise HTTPException(status_code=415, detail="Upload a PDF file.")
+    try:
+        pdf_bytes = await file.read(MAX_GUIDELINE_PDF_BYTES + 1)
+    finally:
+        await file.close()
+    if len(pdf_bytes) > MAX_GUIDELINE_PDF_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"PDF is too large. Maximum allowed size is {MAX_GUIDELINE_PDF_BYTES // (1024 * 1024)} MB.",
+        )
+    if b"%PDF-" not in pdf_bytes[:1024]:
+        raise HTTPException(status_code=422, detail="Unreadable PDF: invalid PDF file signature.")
+    try:
+        extracted_text, extracted_rules = extract_pdf_rules(pdf_bytes)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return _stage_guideline_version(
+        title, version, extracted_text, extracted_rules, org_id, current_user
+    )
+
+def _stage_guideline_version(title, version, content, extracted_rules, org_id, current_user):
+    title = title.strip()
+    version = version.strip()
+    content = content.strip()
+    if not title or len(title) > 200:
+        raise HTTPException(status_code=422, detail="title must contain 1 to 200 characters.")
+    if not version or len(version) > 64:
+        raise HTTPException(status_code=422, detail="version must contain 1 to 64 characters.")
+    if not content or len(content) > 2_000_000:
+        raise HTTPException(
+            status_code=422,
+            detail="guideline content must contain 1 to 2000000 characters.",
+        )
+    if not extracted_rules:
+        raise HTTPException(status_code=422, detail="No guideline rules could be extracted.")
+    user_id = current_user["id"]
     version_pk = str(uuid.uuid4())
     now = datetime.utcnow().isoformat() + "Z"
 
     with get_db() as conn:
         cursor = conn.cursor()
-        cursor.execute("UPDATE guideline_versions SET is_active = 0 WHERE org_id = ?", (org_id,))
         cursor.execute("""
-            INSERT INTO guideline_versions (id, org_id, version, title, raw_content, is_active, uploaded_at)
-            VALUES (?, ?, ?, ?, ?, 1, ?)
-        """, (version_pk, org_id, req.version, req.title, req.content, now))
+            INSERT INTO guideline_versions
+            (id, org_id, version, title, raw_content, is_active, uploaded_at, status)
+            VALUES (?, ?, ?, ?, ?, 0, ?, 'pending')
+        """, (version_pk, org_id, version, title, content, now))
 
         for r in extracted_rules:
             r_pk = str(uuid.uuid4())
@@ -168,18 +232,55 @@ def ingest_guidelines(
                       r['text'], r.get('details'), json.dumps(embedding) if embedding else None, now))
 
     AuditService.log(org_id, user_id, "guideline_version_ingested", {
-        "version": req.version,
-        "title": req.title,
-        "rules_extracted": len(extracted_rules)
+        "version": version,
+        "title": title,
+        "rules_extracted": len(extracted_rules),
+        "status": "pending"
     })
 
     return {
-        "status": "success",
+        "status": "pending_confirmation",
         "version_id": version_pk,
-        "version": req.version,
+        "version": version,
         "rules_count": len(extracted_rules),
         "rules": extracted_rules
     }
+
+@router.post("/versions/{version_id}/activate")
+def activate_guideline_version(
+    version_id: str,
+    req: ActivateGuidelineRequest,
+    org_id: str = Depends(_admin_org_id),
+    current_user: dict = Depends(require_role("admin")),
+):
+    if not req.confirmed:
+        raise HTTPException(status_code=400, detail="Explicit administrator confirmation is required.")
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id, version, title FROM guideline_versions "
+            "WHERE id = ? AND org_id = ? AND status = 'pending'",
+            (version_id, org_id),
+        )
+        version_row = cursor.fetchone()
+        if not version_row:
+            raise HTTPException(status_code=404, detail="Pending guideline version not found.")
+        cursor.execute(
+            "UPDATE guideline_versions SET is_active = 0, status = 'archived' "
+            "WHERE org_id = ? AND is_active = 1",
+            (org_id,),
+        )
+        cursor.execute(
+            "UPDATE guideline_versions SET is_active = 1, status = 'active' "
+            "WHERE id = ? AND org_id = ? AND status = 'pending'",
+            (version_id, org_id),
+        )
+    AuditService.log(org_id, current_user["id"], "guideline_version_activated", {
+        "version": version_row["version"],
+        "title": version_row["title"],
+        "version_id": version_id,
+    })
+    return {"status": "active", "version_id": version_id, "version": version_row["version"]}
 
 # --- Terminology Dictionary ---
 

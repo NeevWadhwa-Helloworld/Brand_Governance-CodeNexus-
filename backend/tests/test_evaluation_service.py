@@ -1,4 +1,5 @@
 from unittest.mock import patch
+from contextlib import contextmanager
 
 from backend.services.evaluation_service import EvaluationService
 
@@ -49,3 +50,34 @@ def test_empty_group_reports_metrics_as_unmeasured():
     assert result["rule_retrieval_coverage"] is None
     assert result["mean_latency_seconds"] is None
     assert result["p95_latency_seconds"] is None
+
+
+def test_benchmark_excludes_seeded_demo_samples():
+    executed_queries = []
+
+    class Cursor:
+        def execute(self, query, _params=()):
+            executed_queries.append(query)
+
+        def fetchone(self):
+            return {"id": "version-1", "version": "v1"}
+
+        def fetchall(self):
+            if "SELECT rule_id FROM rules" in executed_queries[-1]:
+                return [{"rule_id": "VOICE-01"}]
+            return []
+
+    class Connection:
+        def cursor(self):
+            return Cursor()
+
+    @contextmanager
+    def fake_db():
+        yield Connection()
+
+    with patch("backend.services.evaluation_service.get_db", fake_db):
+        report = EvaluationService.run_benchmark("org-1")
+
+    assert report["total_test_samples"] == 0
+    assert report["dataset_provenance"] == "No human-reviewed examples available"
+    assert any("is_demo = FALSE" in query for query in executed_queries)

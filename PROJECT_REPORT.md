@@ -5,8 +5,8 @@
 **Product name:** Inkloom AI
 **Team:** DoraAIemon
 **Prepared:** November 7, 2026
-**Reference plan:** *Brand_Governance_Plan (1).pdf* — Round 1 Submission: The Plan, November 3, 2026
-**Implementation snapshot:** commit `251814f` on `main`
+**Reference plan:** Round 3 ideation PDF
+**Implementation snapshot:** current repository working tree; see the implementation status report for validated changes.
 
 ---
 
@@ -23,7 +23,7 @@ The application brings several steps into one workflow:
 
 The product is designed as a **configurable, organization-specific platform**, not a claim that every firm uses identical brand rules or review procedures. A future customer deployment would be configured and, where needed, adapted to that firm's workflow, policies, storage, and security requirements. The current web application is a demonstration of the product concept and end-to-end workflow.
 
-The current demonstration uses a hosted web frontend and backend, with Gemini API calls when credentials are configured. These choices make the prototype accessible and practical to demonstrate; they do not lock a future customer into a browser interface or a cloud-hosted model. For a future customer or a later hackathon round, the interface could be packaged as a desktop application if that better fits the users' workflow. The model layer could also be adapted to a locally hosted model or a customer's approved private service, subject to security, hardware, quality, and operating-cost evaluation.
+The current demonstration uses a hosted web frontend and backend, with Gemini API calls when credentials are configured. These choices make the prototype accessible and practical to demonstrate; they do not lock a future customer into one cloud-hosted model. The model layer could be adapted to a locally hosted model or a customer's approved private service, subject to security, hardware, quality, and operating-cost evaluation.
 
 ## 2. Why it is useful
 
@@ -188,26 +188,25 @@ The current frontend is a **demonstration UI assembled quickly (about two days, 
 - A finding or a suggestion can be imperfect. Human review remains necessary; no automatic publication or final approval is performed.
 - Audio review depends on an accurate transcript. Video review samples frames rather than inspecting every instant.
 - Visual color, contrast, layout, and logo identity checks are not yet comprehensive.
-- The built-in benchmark has only five labelled examples. It is useful for regression checks, not a statistically reliable product accuracy claim.
+- The eight seeded evaluation fixtures are marked as demos and excluded from measured benchmark results. No human-reviewed examples are currently available, so quality metrics remain unmeasured.
 - No controlled manual-review baseline is available to validate the planned “50% faster” target.
 - The demo's free hosting can make interactions feel laggy and is not a fair measure of performance on a production-sized deployment.
 - The audit chain is verifiable but not immutable storage. Enterprise SSO, customer-managed encryption, and configurable retention are not delivered.
 
 Some runtime or third-party failures may still surface as errors. Local tests do not guarantee that the deployed database, model key, media binaries, persistent disk, or hosting environment are configured correctly. Round 3 should include a reproducible deployment smoke-test and error-triage process.
 
-### 8.2 Planned but not implemented
+### 8.2 Remaining work and limitations
 
-The original plan and follow-on product direction include features that are **not in the current implementation**:
+The original plan and follow-on product direction include capabilities that remain incomplete or require further validation:
 
-- **MCP server:** No MCP server or MCP tools are implemented. The current service uses ordinary authenticated HTTP API endpoints. MCP is a planned integration layer, not a current product capability.
+- **MCP server:** A limited read-only Streamable HTTP MCP service is implemented for organization-scoped rules, draft metadata, and saved findings. It uses application bearer tokens, role checks, audit logging, and bounded requests, with an optional Redis-backed shared rate limiter and user allowlist. OAuth/client registration and live deployment validation remain future work.
 - **Rust/Axum service:** File handling remains in FastAPI/Python.
 - **Live third-party connectors:** The code has local adapters/normalizers for source labels, but not production OAuth, sync, plugin, or publish-back integrations for CMS tools, Google Docs, Figma, Webflow, or HubSpot.
-- **Desktop app:** The current demonstration is a web app. A desktop app is a possible customer-driven packaging option, not an already completed feature.
 - **Local model deployment:** Gemini is the demonstration provider when configured. A local/private provider is not currently a finished deployment option.
 - **Enterprise capabilities:** SSO, customer-managed keys, end-to-end encryption, on-prem model hosting, and configurable asset-retention policies remain future work.
 - **Multilingual/regional support:** There is no validated multilingual policy pipeline or country-specific advertising-rule framework.
 - **Learning from overrides:** Dismissals and edits are recorded but are not used to train a model or automatically alter policy.
-- **Full PDF ingestion and rule approval:** Current guideline ingestion accepts text; it does not provide robust PDF extraction with source-page citations and an administrator confirmation workflow.
+- **PDF ingestion and rule approval:** Extractable-text PDF ingestion, page citations, preview, and staged admin activation are implemented. Scanned/image-only and encrypted PDFs are unsupported; this is not OCR or robust extraction from arbitrary document layouts.
 - **Exhaustive visual/audio/video review:** Current OCR, transcription, and frame sampling are partial extraction aids.
 
 ## 9. Round 3 plan
@@ -224,14 +223,13 @@ Round 3 should turn the demonstration into a more reliable, evaluable, and custo
 
 **Outcome:** fewer demonstration failures, clearer diagnosis, and a stable baseline before adding integration complexity.
 
-### Phase 2 — Build MCP intentionally and securely
+### Phase 2 — Validate and extend MCP securely
 
-1. Agree on concrete MCP use cases before building tools—for example: retrieve a caller's approved brand rules, submit a draft for review, or retrieve findings for a draft.
-2. Define a small, read-only-first tool set and explicit input/output schemas. Do not expose arbitrary database access or unrestricted file operations.
-3. Authenticate each request and enforce organization scope and role permissions on every tool, reusing the backend authorization boundary.
-4. Apply least privilege, input validation, rate limits, audit logging, and safe error handling. Keep model-generated suggestions separate from actions that change records.
-5. Add integration tests for unauthorized roles, cross-organization requests, malformed input, tool errors, and audit events.
-6. Only then connect an approved MCP client and document the tool contract and deployment threat model.
+1. Deploy over HTTPS and validate the implemented rules, limited draft metadata, and saved-findings tools using an organization's approved MCP client.
+2. Keep the tool set read-only unless a separately reviewed use case justifies additional actions; do not expose arbitrary database access or unrestricted file operations.
+3. Retain per-request authentication, organization scope, role permissions, input limits, and audit logging.
+4. Configure shared Redis or edge rate limiting before horizontal scaling; add OAuth/client registration if organization-managed approvals are required.
+5. Continue testing unauthorized roles, cross-organization requests, malformed input, tool errors, and audit events.
 
 **Outcome:** MCP becomes a controlled interoperability surface, not a bypass around existing security checks. It can let approved AI clients use the organization's governance workflow without granting broad access to company data.
 
@@ -248,12 +246,11 @@ Round 3 should turn the demonstration into a more reliable, evaluable, and custo
 
 ### Phase 4 — Improve media review
 
-1. Add transcript upload/edit/confirmation for audio and video, plus clear confidence and missing-audio status.
-2. Link speech findings to reliable transcript timestamps and visual findings to frame timestamps.
-3. Evaluate denser or adaptive frame sampling and explicit video duration/coverage limits.
-4. Test OCR and transcription quality using representative accents, noise, typography, and asset formats.
-5. Add robust logo matching, palette sampling, and contrast analysis with human-verifiable evidence.
-6. Keep the final approval human-controlled and require replacement media for accepted changes to binary assets.
+1. Improve transcript confidence and missing-audio status, and validate timestamp accuracy on representative media.
+2. Evaluate denser or adaptive frame sampling and explicit video duration/coverage limits.
+3. Test OCR and transcription quality using representative accents, noise, typography, and asset formats.
+4. Add robust logo matching, palette sampling, and contrast analysis with human-verifiable evidence.
+5. Keep the final approval human-controlled and require replacement media for accepted changes to binary assets.
 
 **Outcome:** fewer blind spots in non-text assets and more useful, localized reviewer feedback.
 
@@ -263,7 +260,6 @@ Round 3 should turn the demonstration into a more reliable, evaluable, and custo
 2. Improve information hierarchy, accessibility, responsive layouts, empty/loading/error states, and navigation consistency.
 3. Make the user's next action clear for each finding and for every incomplete-coverage condition.
 4. Add customer-level configuration for role names, approval stages, policy categories, and retention where justified.
-5. Evaluate web versus desktop packaging with a prospective customer rather than assuming one is universally better.
 
 **Outcome:** a more usable product that can be tailored without hard-coding one firm's process into the platform.
 
@@ -281,23 +277,22 @@ Round 3 should turn the demonstration into a more reliable, evaluable, and custo
 
 | Future capability | How it improves the product | Expanded use case |
 |---|---|---|
-| MCP with scoped tools | Lets approved assistants and workflows request policy checks through a governed interface. | Bring brand checks into internal AI assistants or controlled content pipelines. |
+| Read-only MCP with scoped tools (implemented) | Lets approved assistants and workflows retrieve governed policy and findings data. | Bring brand context into internal AI assistants or controlled content pipelines. |
 | Local/private model option | Gives customers another way to meet data-location or confidentiality requirements. | Review unreleased campaigns in a customer-controlled environment, if validated and supported. |
 | Direct CMS/editor integrations | Removes manual export/import steps and returns findings where content is authored. | Review blog, campaign, and web content inside existing publishing workflows. |
 | Improved audio/video review | Adds transcript and frame evidence with clearer coverage. | Review advertisements, social videos, podcasts, and spoken product claims. |
 | Stronger visual verification | Provides evidence for palette, contrast, and logo usage. | Review banners, presentations, product imagery, and campaign assets more consistently. |
 | Better benchmark and analytics | Separates measured quality from unsupported claims and identifies repeated workflow problems. | Help brand and legal teams prioritize policy clarification and training. |
 | Customer-specific workflow configuration | Aligns roles and approval stages to each firm's actual process. | Support agencies, regulated organizations, and teams with multiple brands or regions. |
-| Desktop packaging, if needed | Can fit restricted or specialized working environments. | Offer a dedicated workstation workflow where a browser deployment is not suitable. |
 
 ## 11. Verification and project status
 
-At the implementation snapshot named above:
+At the repository state checked for this report:
 
-- Backend: `python -m pytest backend\tests` — **27 passed**.
+- Backend: `python -m pytest backend\tests -q` — **66 passed**.
 - Frontend: `cd frontend; npm run build` — **succeeded**.
-- Frontend: `cd frontend; npm run lint` — completed with existing warnings.
-- Commit `251814f` was pushed to `origin/main`.
+- Frontend: `cd frontend; npm run lint` — completed with warnings.
+- Live deployment health was not validated as part of this repository work.
 
 These results verify local tests and frontend compilation at that snapshot. They do not prove that the live hosting services, database credentials, media executables, Gemini configuration, or every production interaction are functioning at all times.
 
@@ -316,6 +311,6 @@ These results verify local tests and frontend compilation at that snapshot. They
 
 ## 13. Closing perspective
 
-Inkloom AI demonstrates the core idea from the original plan: organization-specific guidance can be connected to draft scanning and a human approval process. It also exposes the work still required to make the system dependable for different firms—especially measured evaluation, fuller media coverage, production-grade integrations, privacy/deployment choices, a more polished UI, and MCP built with strict access controls.
+Inkloom AI demonstrates the core idea from the original plan: organization-specific guidance can be connected to draft scanning and a human approval process. It also exposes the work still required to make the system dependable for different firms—especially real evaluation evidence, fuller media coverage, production-grade integrations, privacy/deployment choices, usability testing, and live validation of the implemented MCP interface.
 
 The next round should preserve what is already useful while being precise about the system's limits. The goal is not to let AI make a firm's final brand or legal decision; it is to provide grounded, reviewable assistance that fits the customer's workflow and leaves people in control.

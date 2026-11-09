@@ -48,6 +48,9 @@ export default function SourceOfTruth({ currentUser }) {
   const [ingestText, setIngestText] = useState('');
   const [ingestResult, setIngestResult] = useState(null);
   const [ingestLoading, setIngestLoading] = useState(false);
+  const [ingestPdf, setIngestPdf] = useState(null);
+  const [ingestError, setIngestError] = useState('');
+  const [ingestConfirmed, setIngestConfirmed] = useState(false);
 
   // Term Form
   const [showAddTerm, setShowAddTerm] = useState(false);
@@ -268,17 +271,43 @@ export default function SourceOfTruth({ currentUser }) {
     e.preventDefault();
     if (!ingestVersion.trim()) return;
     setIngestLoading(true);
+    setIngestResult(null);
+    setIngestError('');
+    setIngestConfirmed(false);
     try {
-      const res = await api.ingestGuidelines({
-        title: ingestTitle.trim() || 'Brand Guidelines Revision',
-        version: ingestVersion.trim(),
-        content: ingestText
-      }, currentUser?.id);
+      let res;
+      if (ingestPdf) {
+        const formData = new FormData();
+        formData.append('title', ingestTitle.trim() || 'Brand Guidelines Revision');
+        formData.append('version', ingestVersion.trim());
+        formData.append('file', ingestPdf);
+        res = await api.ingestGuidelinePdf(formData, currentUser?.id);
+      } else {
+        res = await api.ingestGuidelines({
+          title: ingestTitle.trim() || 'Brand Guidelines Revision',
+          version: ingestVersion.trim(),
+          content: ingestText
+        }, currentUser?.id);
+      }
       setIngestResult(res);
-      setIngestVersion('');
+    } catch (e) {
+      setIngestError(e.message || 'Unable to parse the guideline document.');
+    } finally {
+      setIngestLoading(false);
+    }
+  }
+
+  async function handleActivateIngest() {
+    if (!ingestResult?.version_id || !ingestConfirmed) return;
+    setIngestLoading(true);
+    setIngestError('');
+    try {
+      const activated = await api.activateGuidelineVersion(ingestResult.version_id, currentUser?.id);
+      setIngestResult({ ...ingestResult, ...activated, rules: ingestResult.rules });
+      setIngestConfirmed(false);
       await loadAllData();
     } catch (e) {
-      console.error(e);
+      setIngestError(e.message || 'Unable to activate the guideline version.');
     } finally {
       setIngestLoading(false);
     }
@@ -1357,8 +1386,8 @@ export default function SourceOfTruth({ currentUser }) {
               </h3>
             </div>
             <p className="text-xs text-[#7C88AB] mt-1 ml-9.5">
-              Upload raw brand markdown or policy documents. The platform's parser automatically numbers
-              rules (VOICE-01, FACT-01, etc.) and updates the active Source of Truth.
+              Upload a PDF or paste brand guideline text/Markdown. Review extracted rules and source pages;
+              the active Source of Truth changes only after you explicitly confirm activation.
             </p>
           </div>
 
@@ -1370,7 +1399,11 @@ export default function SourceOfTruth({ currentUser }) {
                   type="text"
                   required
                   value={ingestTitle}
-                  onChange={e => setIngestTitle(e.target.value)}
+                  onChange={e => {
+                    setIngestTitle(e.target.value);
+                    setIngestResult(null);
+                    setIngestConfirmed(false);
+                  }}
                   placeholder="e.g. Inkloom Q4 Global Voice & Visual Standard"
                   className="w-full bg-[#0E1428] border border-[#1F2A4A] rounded-xl p-2.5 text-[#E8ECF8] focus:outline-none focus:border-[#4F6BED]"
                 />
@@ -1381,7 +1414,11 @@ export default function SourceOfTruth({ currentUser }) {
                   type="text"
                   required
                   value={ingestVersion}
-                  onChange={e => setIngestVersion(e.target.value)}
+                  onChange={e => {
+                    setIngestVersion(e.target.value);
+                    setIngestResult(null);
+                    setIngestConfirmed(false);
+                  }}
                   placeholder="Enter the guideline version"
                   className="w-full bg-[#0E1428] border border-[#1F2A4A] rounded-xl p-2.5 text-[#E8ECF8] font-mono focus:outline-none focus:border-[#4F6BED]"
                 />
@@ -1389,16 +1426,44 @@ export default function SourceOfTruth({ currentUser }) {
             </div>
 
             <div>
+              <label className="block text-[#7C88AB] mb-1 font-medium">PDF guideline (optional)</label>
+              <input
+                type="file"
+                accept="application/pdf,.pdf"
+                key={ingestPdf ? 'pdf-selected' : 'pdf-empty'}
+                onChange={e => {
+                  setIngestPdf(e.target.files?.[0] || null);
+                  setIngestResult(null);
+                  setIngestConfirmed(false);
+                }}
+                className="w-full bg-[#0E1428] border border-[#1F2A4A] rounded-xl p-2.5 text-[#E8ECF8]"
+              />
+              <p className="text-[11px] text-[#7C88AB] mt-1">Maximum 15 MB. Encrypted and scanned/image-only PDFs are not supported.</p>
+              {ingestPdf && (
+                <button type="button" onClick={() => {
+                  setIngestPdf(null);
+                  setIngestResult(null);
+                  setIngestConfirmed(false);
+                }} className="text-[#60A5FA] mt-1">
+                  Remove {ingestPdf.name} and use text/Markdown instead
+                </button>
+              )}
+            </div>
+
+            {!ingestPdf && <div>
               <label className="block text-[#7C88AB] mb-1 font-medium">Guideline Text / Markdown</label>
               <textarea
-                required
                 rows={7}
                 value={ingestText}
-                onChange={e => setIngestText(e.target.value)}
+                onChange={e => {
+                  setIngestText(e.target.value);
+                  setIngestResult(null);
+                  setIngestConfirmed(false);
+                }}
                 placeholder="# VOICE-05: Customer Centricity&#10;Always prioritize client outcomes over internal milestones.&#10;&#10;# CLAIM-03: Security Guarantees&#10;Reference SOC 2 Type II compliance when mentioning data privacy."
                 className="w-full bg-[#0E1428] border border-[#1F2A4A] rounded-xl p-3 text-[#E8ECF8] font-mono leading-relaxed focus:outline-none focus:border-[#4F6BED]"
               />
-            </div>
+            </div>}
 
             <button
               type="submit"
@@ -1406,19 +1471,57 @@ export default function SourceOfTruth({ currentUser }) {
               className="bg-[#4F6BED] hover:bg-[#6479F2] text-white px-5 py-2.5 rounded-xl font-bold shadow-md shadow-[#4F6BED]/20 transition-all flex items-center gap-2"
             >
               {ingestLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
-              <span>{ingestLoading ? 'Ingesting & Splitting...' : 'Parse, Number & Ingest Guideline Rules'}</span>
+              <span>{ingestLoading ? 'Parsing guideline...' : 'Parse and Preview Rules'}</span>
             </button>
           </form>
 
+          {ingestError && (
+            <div role="alert" className="bg-[#F87171]/10 border border-[#F87171]/30 rounded-xl p-3 text-xs text-[#FCA5A5]">
+              {ingestError}
+            </div>
+          )}
+
           {ingestResult && (
-            <div className="bg-[#34D399]/10 border border-[#34D399]/30 rounded-xl p-4 text-xs text-[#34D399] space-y-1 motion-safe:animate-fade-in shadow-md">
-              <div className="font-bold flex items-center gap-1.5">
+            <div className="bg-[#34D399]/10 border border-[#34D399]/30 rounded-xl p-4 text-xs text-[#E8ECF8] space-y-3 motion-safe:animate-fade-in shadow-md">
+              <div className="font-bold flex items-center gap-1.5 text-[#34D399]">
                 <CheckCircle2 className="w-4 h-4" />
-                Successfully Ingested {ingestResult.version}!
+                {ingestResult.status === 'active' ? `Activated ${ingestResult.version}.` : `Preview: ${ingestResult.version}`}
               </div>
               <p className="text-[11px] text-[#AAB4D0] leading-relaxed">
-                Extracted and indexed {ingestResult.rules_count} numbered brand rule(s) into the active RAG knowledge base.
+                Parsed {ingestResult.rules_count} rule(s). This version {ingestResult.status === 'active' ? 'is active.' : 'is still pending and has not changed the active guidelines.'}
               </p>
+              <div className="max-h-64 overflow-y-auto space-y-2">
+                {ingestResult.rules?.map(rule => (
+                  <div key={`${rule.rule_id}-${rule.source_page || ''}`} className="rounded-lg border border-[#1F2A4A] bg-[#0E1428] p-3">
+                    <div className="font-semibold text-[#E8ECF8]">{rule.rule_id}: {rule.title}</div>
+                    <div className="text-[#AAB4D0] mt-1">{rule.text}</div>
+                    {rule.source_page && (
+                      <div className="text-[#60A5FA] mt-1">Source: PDF page {rule.source_page}</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+              {ingestResult.status !== 'active' && (
+                <div className="space-y-3 border-t border-[#1F2A4A] pt-3">
+                  <label className="flex items-start gap-2 text-[#AAB4D0]">
+                    <input
+                      type="checkbox"
+                      checked={ingestConfirmed}
+                      onChange={e => setIngestConfirmed(e.target.checked)}
+                      className="mt-0.5 accent-[#4F6BED]"
+                    />
+                    I reviewed this parsed version and explicitly confirm activating it for my organization.
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleActivateIngest}
+                    disabled={ingestLoading || !ingestConfirmed}
+                    className="bg-[#34D399] hover:bg-[#6EE7B7] disabled:opacity-50 disabled:cursor-not-allowed text-[#0A0F1E] px-4 py-2 rounded-xl font-bold"
+                  >
+                    {ingestLoading ? 'Activating...' : 'Confirm and Activate Version'}
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>

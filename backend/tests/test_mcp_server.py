@@ -6,7 +6,10 @@ import pytest
 from fastapi import HTTPException
 from mcp import Client
 from mcp.server.mcpserver.exceptions import ToolError
+from redis.exceptions import RedisError
 from starlette.testclient import TestClient
+from starlette.requests import Request
+from starlette.responses import Response
 
 from backend.services import mcp_server
 
@@ -27,6 +30,153 @@ def test_mcp_rate_limit_is_per_user():
     assert limiter.retry_after("user-1") is None
     assert limiter.retry_after("user-1") >= 1
     assert limiter.retry_after("user-2") is None
+
+
+def test_mcp_limiter_defaults_to_process_local(monkeypatch):
+    monkeypatch.setattr(mcp_server.settings, "MCP_RATE_LIMIT_REDIS_URL", "")
+    limiter = mcp_server.create_request_limiter()
+    assert isinstance(limiter, mcp_server.UserRequestLimiter)
+    assert not isinstance(limiter, mcp_server.RedisUserRequestLimiter)
+
+
+def test_mcp_redis_limiter_uses_shared_atomic_script(monkeypatch):
+    class FakeRedis:
+        def __init__(self):
+            self.eval_args = None
+
+        def ping(self):
+            return True
+
+        def eval(self, *args):
+            self.eval_args = args
+            return 1250
+
+    client = FakeRedis()
+    monkeypatch.setattr(
+        mcp_server.Redis,
+        "from_url",
+        classmethod(lambda _cls, _url, **_kwargs: client),
+    )
+    monkeypatch.setattr(
+        mcp_server.settings,
+        "MCP_RATE_LIMIT_REDIS_URL",
+        "rediss://redis.example.invalid:6379/0",
+    )
+    limiter = mcp_server.create_request_limiter()
+
+    assert isinstance(limiter, mcp_server.RedisUserRequestLimiter)
+    limiter.initialize()
+    assert limiter.retry_after("sensitive-user-id") == 2
+    script, key_count, key, window, limit, nonce = client.eval_args
+    assert "ZREMRANGEBYSCORE" in script
+    assert key_count == 1
+    assert key.startswith("inkloom:mcp:rate-limit:")
+    assert "sensitive-user-id" not in key
+    assert (window, limit) == (60_000, mcp_server.settings.MCP_REQUESTS_PER_MINUTE)
+    assert nonce
+
+
+def test_mcp_redis_limiter_rejects_invalid_url():
+    with pytest.raises(RuntimeError, match="must use redis:// or rediss://"):
+        mcp_server.RedisUserRequestLimiter(3, "http://redis.example.invalid")
+
+
+def test_mcp_redis_limiter_fails_closed_when_unavailable(monkeypatch):
+    class FakeRedis:
+        def ping(self):
+            raise RedisError("offline")
+
+        def eval(self, *_args):
+            raise RedisError("offline")
+
+    monkeypatch.setattr(
+        mcp_server.Redis,
+        "from_url",
+        classmethod(lambda _cls, _url, **_kwargs: FakeRedis()),
+    )
+    limiter = mcp_server.RedisUserRequestLimiter(3, "redis://redis.example.invalid:6379/0")
+    with pytest.raises(RuntimeError, match="Redis rate limiter is unavailable"):
+        limiter.initialize()
+    with pytest.raises(mcp_server.RateLimiterUnavailable):
+        limiter.retry_after("user-1")
+
+
+@pytest.mark.anyio
+async def test_mcp_returns_service_unavailable_if_shared_limiter_fails(monkeypatch):
+    class FailedLimiter:
+        def retry_after(self, _user_id):
+            raise mcp_server.RateLimiterUnavailable("offline")
+
+    monkeypatch.setattr(mcp_server, "_request_limiter", FailedLimiter())
+    monkeypatch.setattr(
+        mcp_server,
+        "get_user_from_access_token",
+        lambda _token: {"id": "user-1", "org_id": "org-1", "role": "creator"},
+    )
+    request = Request({
+        "type": "http",
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "http",
+        "path": "/mcp",
+        "raw_path": b"/mcp",
+        "query_string": b"",
+        "headers": [(b"authorization", b"Bearer test-token")],
+        "server": ("testserver", 80),
+        "client": ("testclient", 50000),
+    })
+    middleware = mcp_server.MCPBearerAuthMiddleware(app=None)
+
+    response = await middleware.dispatch(request, lambda _request: Response("ok"))
+
+    assert response.status_code == 503
+    assert response.headers["x-request-id"]
+
+
+@pytest.mark.anyio
+async def test_mcp_middleware_applies_user_allowlist_after_jwt_auth(monkeypatch):
+    class UnexpectedLimiter:
+        def retry_after(self, _user_id):
+            raise AssertionError("allowlisted users must be rejected before rate limiting")
+
+    monkeypatch.setattr(mcp_server, "_request_limiter", UnexpectedLimiter())
+    monkeypatch.setattr(mcp_server.settings, "MCP_ALLOWED_USER_IDS", ["approved-user"])
+    monkeypatch.setattr(
+        mcp_server,
+        "get_user_from_access_token",
+        lambda _token: {"id": "blocked-user", "org_id": "org-1", "role": "admin"},
+    )
+    request = Request({
+        "type": "http",
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "http",
+        "path": "/mcp",
+        "raw_path": b"/mcp",
+        "query_string": b"",
+        "headers": [(b"authorization", b"Bearer test-token")],
+        "server": ("testserver", 80),
+        "client": ("testclient", 50000),
+    })
+    middleware = mcp_server.MCPBearerAuthMiddleware(app=None)
+
+    response = await middleware.dispatch(request, lambda _request: Response("ok"))
+
+    assert response.status_code == 403
+    assert response.headers["x-request-id"]
+
+
+def test_mcp_authenticated_user_allowlist_keeps_jwt_auth_required(monkeypatch):
+    monkeypatch.setattr(mcp_server.settings, "MCP_ALLOWED_USER_IDS", ["approved-user"])
+    monkeypatch.setattr(
+        mcp_server,
+        "get_user_from_access_token",
+        lambda token: {"id": "blocked-user", "org_id": "org-1", "role": "admin"},
+    )
+    with pytest.raises(ToolError, match="not enabled for MCP access"):
+        mcp_server._authenticated_user(
+            SimpleNamespace(headers={"authorization": "Bearer test-token"})
+        )
 
 
 @pytest.mark.anyio
@@ -111,7 +261,12 @@ def test_mcp_is_available_on_the_main_application(monkeypatch):
     assert unauthenticated.status_code == 401
     assert invalid_token.status_code == 401
     assert authenticated.status_code == 200
+    assert unauthenticated.headers["x-request-id"]
+    assert invalid_token.headers["x-request-id"]
+    assert authenticated.headers["x-request-id"]
+    assert authenticated.headers["x-request-id"]
     assert "mcp-session-id" in authenticated.headers["access-control-expose-headers"].lower()
+    assert "x-request-id" in authenticated.headers["access-control-expose-headers"].lower()
     assert initialized.status_code == 202
     assert tools_list.status_code == 200
     assert {tool["name"] for tool in tools_list_data["result"]["tools"]} == {
