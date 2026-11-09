@@ -1,13 +1,13 @@
 import React from 'react';
 import {
   ShieldCheck, FileText, CheckCircle, Brain, BarChart3,
-  TestTube2, Lock, Users, LogOut, Sun, Moon
+  TestTube2, Lock, Users, LogOut, Sun, Moon, Server
 } from 'lucide-react';
 
 const ROLE_TABS = {
-  creator: ['studio', 'analytics'],
-  reviewer: ['approvals', 'analytics', 'audit'],
-  admin: ['brain', 'studio', 'approvals', 'analytics', 'evaluation', 'audit', 'users']
+  creator: ['studio', 'analytics', 'mcp'],
+  reviewer: ['approvals', 'analytics', 'evaluation', 'mcp', 'audit'],
+  admin: ['brain', 'studio', 'approvals', 'analytics', 'evaluation', 'mcp', 'audit', 'users']
 };
 
 export default function Navbar({
@@ -25,6 +25,7 @@ export default function Navbar({
     { id: 'brain', label: 'Guidelines', icon: Brain },
     { id: 'analytics', label: 'Analytics', icon: BarChart3 },
     { id: 'evaluation', label: 'Benchmarks', icon: TestTube2 },
+    { id: 'mcp', label: 'MCP Server', icon: Server },
     { id: 'audit', label: 'Audit log', icon: Lock },
     { id: 'users', label: 'Users', icon: Users },
   ];

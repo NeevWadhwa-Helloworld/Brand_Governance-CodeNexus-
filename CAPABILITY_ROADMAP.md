@@ -14,9 +14,10 @@
 3. **Production database and object storage** - PostgreSQL with `pgvector` plus
    object storage becomes important when multiple organizations and concurrent
    writers are introduced.
-4. **Evaluation with real labelled data** - the current benchmark is useful for
-   regression testing, but production quality needs reviewer-labelled examples,
-   precision/recall, false-negative tracking, and policy-coverage rates.
+4. **Evaluation with real labelled data** - reviewer labeling and reporting for
+   precision, recall, false positives, rule-retrieval coverage, and latency are
+   implemented. Real examples still need to be added before the numbers can support
+   production quality claims.
 
 ### Important, but dependent on product scope
 
@@ -38,20 +39,24 @@ timestamps or frame numbers to matching policy flags. If a capability is
 unavailable, the revision remains `needs_review` instead of being treated as
 covered.
 
+Creators can now edit and explicitly confirm extracted or manually supplied
+transcripts, see the extraction/confirmation state and review gaps, and rescan.
+Video frame previews link to sampled points in the source video. Unconfirmed
+transcripts or unavailable required extraction stay in human review and cannot
+be submitted as covered content.
+
 This is needed if the target users publish podcasts, webinars, reels, video ads, or
 voice-over campaigns. It is not required for a text-and-static-image MVP.
 
-Implementation sequence:
+Remaining production work:
 
-1. Store media in object storage and create a `media_assets` record.
-2. Extract technical metadata with FFmpeg/MediaInfo.
-3. Transcribe audio and speech with a selected speech-to-text provider or local
-   model; extract video captions and on-screen frames.
-4. Run OCR on sampled frames for visible text.
-5. Send transcript, OCR text, timestamps, and sampled visual features through the
-   same deterministic and grounded semantic checks.
-6. Store findings with `start_time`, `end_time`, or `frame_number`.
-7. Display clickable timeline findings and require human approval before release.
+1. Move media to object storage with private/signed access.
+2. Select and evaluate transcription/OCR providers, including confidence and
+   accuracy checks.
+3. Add robust visual brand-element review and persist transcript/frame evidence
+   as first-class records.
+4. Keep optional extractor dependencies available in production and monitor
+   failed jobs.
 
 Benefits:
 
@@ -62,20 +67,25 @@ Benefits:
 
 #### MCP
 
-MCP is not required for local correctness. The current Python adapter already
-provides a service boundary. MCP becomes useful when the platform must expose
-governed capabilities to multiple AI clients or agents.
+The backend exposes a Streamable HTTP MCP server with tools to retrieve active
+brand rules, list limited draft metadata, and retrieve saved findings. It is
+read-only: it cannot return draft body text, edit or create drafts, trigger scans,
+approve/publish content, or access arbitrary database/filesystem paths. Requests
+require the application's bearer JWT, use the authenticated user's organization,
+enforce governance roles, and audit tool calls and denied cross-organization
+lookups. Tool input sizes and per-user request frequency are bounded. The
+in-memory rate limit is per backend process, so a scaled deployment still needs
+an edge or shared rate limiter. This is user-token authorization, not a
+server-side MCP client registry or OAuth client-approval flow.
 
-Implementation sequence:
+Remaining implementation sequence:
 
-1. Define narrow tools: retrieve rules, scan draft, explain flag, list approved
-   facts, and create an approval request.
-2. Validate every MCP request with JWT, organization scope, role, and input limits.
-3. Make tools call existing application services rather than duplicate logic.
-4. Return structured Pydantic responses with rule citations and coverage status.
-5. Add audit events for tool calls, retrieved rule IDs, model provider, and
-   approval actions.
-6. Add rate limits, timeouts, redaction, and explicit confirmation for mutations.
+1. Deploy over HTTPS and validate an organization's chosen MCP client.
+2. Add OAuth/client registration if organization-managed client approvals are
+   required.
+3. Add a shared or edge-enforced rate limit before horizontal scaling.
+4. Keep approval and publishing behind the application's explicit human review
+   workflow.
 
 Benefits:
 
@@ -115,14 +125,17 @@ are multiple agent or integration clients that need the same governed operations
 - PostgreSQL and `pgvector` deployment path; populate/evaluate embeddings before switching retrieval.
 - Object storage and signed media URLs.
 - Background job queue for scans.
-- Real labelled evaluation set and false-negative dashboard.
+- Reviewer-labeled dataset schema and quality-metrics dashboard.
+- Add and review enough representative, human-labeled examples to make the
+  implemented quality metrics meaningful.
 - TLS, secrets management, retention, and backups.
 
 ### Phase C - multimodal quality
 
 - Improve transcription/OCR quality and confidence handling.
 - Persist transcript segments and frame evidence as first-class records.
-- Expand timeline review and media-specific approval evidence.
+- Expand timeline review and media-specific approval evidence beyond the current
+  transcript editor and sampled-frame workflow.
 
 ### Phase D - governed ecosystem (optional)
 

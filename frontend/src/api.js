@@ -7,7 +7,7 @@ export function mediaUrl(path) {
   return `${configuredApiOrigin}${path.startsWith('/') ? path : `/${path}`}`;
 }
 
-function authHeaders(userId) {
+function authHeaders(_userId) {
   const token = localStorage.getItem('access_token');
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
@@ -113,6 +113,17 @@ export const api = {
       headers: {
         'Content-Type': 'application/json',
         ...authHeaders(userId)
+      },
+      body: JSON.stringify(payload)
+    });
+    return parseResponse(res);
+  },
+  async updateMediaTranscript(draftId, payload) {
+    const res = await fetch(`${API_BASE}/drafts/${draftId}/transcript`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        ...authHeaders()
       },
       body: JSON.stringify(payload)
     });
@@ -318,6 +329,18 @@ export const api = {
   },
   async getLatestEvaluation() {
     const res = await fetch(`${API_BASE}/evaluation/latest`, { headers: authHeaders() });
+    return parseResponse(res);
+  },
+  async getEvaluationSamples() {
+    const res = await fetch(`${API_BASE}/evaluation/samples`, { headers: authHeaders() });
+    return parseResponse(res);
+  },
+  async createEvaluationSample(formData) {
+    const res = await fetch(`${API_BASE}/evaluation/samples`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: formData
+    });
     return parseResponse(res);
   },
 

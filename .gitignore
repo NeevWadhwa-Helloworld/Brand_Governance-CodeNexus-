@@ -54,3 +54,12 @@ yarn-error.log*
 *.swo
 .DS_Store
 Thumbs.db
+
+# Local testing folder & local runtime assets
+Brand_Governance_Plan/
+backend/static/uploads/*
+!backend/static/uploads/.gitkeep
+backend/static/frame_evidence/*
+!backend/static/frame_evidence/.gitkeep
+evaluation_assets/*
+!evaluation_assets/.gitkeep

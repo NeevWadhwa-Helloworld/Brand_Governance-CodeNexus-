@@ -30,6 +30,10 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
   const [creatingDraft, setCreatingDraft] = useState(false);
   const [createDraftError, setCreateDraftError] = useState('');
   const [mediaTranscript, setMediaTranscript] = useState('');
+  const [mediaTranscriptConfirmed, setMediaTranscriptConfirmed] = useState(false);
+  const [mediaTranscriptText, setMediaTranscriptText] = useState('');
+  const [transcriptConfirmationChecked, setTranscriptConfirmationChecked] = useState(false);
+  const [savingTranscript, setSavingTranscript] = useState(false);
   const [isEditingDraft, setIsEditingDraft] = useState(false);
   const [editDraftText, setEditDraftText] = useState('');
   const [activeFlagId, setActiveFlagId] = useState(null);
@@ -40,28 +44,6 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
   const mediaElementRef = useRef(null);
 
   const mediaLoadError = failedMediaDraftId === currentDraft?.id;
-
-  useEffect(() => {
-    loadDrafts();
-  }, []);
-
-  useEffect(() => {
-    if (selectedDraftId) {
-      loadDraftDetails(selectedDraftId);
-      loadComments(selectedDraftId);
-    }
-  }, [selectedDraftId]);
-
-  useEffect(() => {
-    setFailedMediaDraftId(null);
-    setReplacementFile(null);
-  }, [selectedDraftId]);
-
-  useEffect(() => () => {
-    if (selectedFilePreviewUrlRef.current) {
-      URL.revokeObjectURL(selectedFilePreviewUrlRef.current);
-    }
-  }, []);
 
   function setSelectedFileWithPreview(file) {
     if (selectedFilePreviewUrlRef.current) {
@@ -89,9 +71,16 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
   }
 
   async function loadDraftDetails(id) {
+    setFailedMediaDraftId(null);
+    setReplacementFile(null);
     try {
       const data = await api.getDraft(id);
       setCurrentDraft(data);
+      if (data.content_type === 'audio' || data.content_type === 'video') {
+        const analysis = data.latest_revision?.media_analysis;
+        setMediaTranscriptText(analysis?.transcript || '');
+        setTranscriptConfirmationChecked(Boolean(analysis?.transcript_confirmed));
+      }
       if (data.latest_revision?.content_text) {
         setEditDraftText(data.latest_revision.content_text);
       }
@@ -113,6 +102,23 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
       setCommentsLoading(false);
     }
   }
+
+  useEffect(() => {
+    loadDrafts();
+  }, []);
+
+  useEffect(() => {
+    if (selectedDraftId) {
+      loadDraftDetails(selectedDraftId);
+      loadComments(selectedDraftId);
+    }
+  }, [selectedDraftId]);
+
+  useEffect(() => () => {
+    if (selectedFilePreviewUrlRef.current) {
+      URL.revokeObjectURL(selectedFilePreviewUrlRef.current);
+    }
+  }, []);
 
   async function handleReplaceMedia() {
     if (!currentDraft || !replacementFile) return;
@@ -148,6 +154,35 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
       if (showToast) showToast(`Scan failed: ${e.message}`, "error");
     } finally {
       setScanning(false);
+    }
+  }
+
+  async function handleSaveTranscript() {
+    if (!currentDraft) return;
+    setSavingTranscript(true);
+    try {
+      const updated = await api.updateMediaTranscript(currentDraft.id, {
+        transcript: mediaTranscriptText,
+        confirmed: Boolean(mediaTranscriptText.trim()) && transcriptConfirmationChecked
+      });
+      setCurrentDraft(updated);
+      setMediaTranscriptText(updated.latest_revision?.media_analysis?.transcript || '');
+      await loadDrafts();
+      if (onDraftUpdated) onDraftUpdated();
+      if (showToast) {
+        const confirmed = updated.latest_revision?.media_analysis?.transcript_confirmed;
+        showToast(
+          confirmed
+            ? 'Transcript confirmed and media re-scanned.'
+            : 'Transcript saved. The draft remains in human review until you confirm it.',
+          confirmed ? 'success' : 'warning'
+        );
+      }
+    } catch (e) {
+      console.error(e);
+      if (showToast) showToast(`Could not save transcript: ${e.message}`, 'error');
+    } finally {
+      setSavingTranscript(false);
     }
   }
 
@@ -265,11 +300,13 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
         formData.append('title', newTitle || `Untitled ${newType}`);
         formData.append('media_type', newType);
         formData.append('transcript', mediaTranscript);
+        formData.append('transcript_confirmed', String(mediaTranscriptConfirmed));
         formData.append('file', selectedFile);
         const created = await api.uploadMediaDraft(formData);
         setIsCreatingNew(false);
         setNewTitle('');
         setMediaTranscript('');
+        setMediaTranscriptConfirmed(false);
         setSelectedFileWithPreview(null);
         await loadDrafts();
         setSelectedDraftId(created.id);
@@ -283,6 +320,7 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
         setNewContent('');
         setSelectedFileWithPreview(null);
         setMediaTranscript('');
+        setMediaTranscriptConfirmed(false);
         await loadDrafts();
         setSelectedDraftId(e.draftId);
         if (onDraftUpdated) onDraftUpdated();
@@ -634,12 +672,23 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
                   </div>
                 )}
                 <textarea
-                  placeholder="Optional transcript or captions for policy scanning..."
+                  placeholder="Paste transcript/captions. If left blank, extraction may be attempted automatically..."
                   value={mediaTranscript}
                   onChange={e => setMediaTranscript(e.target.value)}
+                  maxLength={50000}
                   rows={3}
                   className="w-full bg-[#0E1428] border border-[#1F2A4A] rounded-xl px-3 py-2 text-xs text-[#E8ECF8] placeholder-[#7C88AB] focus:outline-none focus:border-[#4F6BED] transition-colors"
                 />
+                <label className="flex items-start gap-2 text-[11px] text-[#AAB4D0]">
+                  <input
+                    type="checkbox"
+                    checked={mediaTranscriptConfirmed}
+                    disabled={!mediaTranscript.trim()}
+                    onChange={e => setMediaTranscriptConfirmed(e.target.checked)}
+                    className="mt-0.5 accent-[#34D399]"
+                  />
+                  <span>I reviewed this transcript against the audio/video and confirm it is accurate.</span>
+                </label>
               </div>
             )}
 
@@ -1020,6 +1069,18 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
                       <MediaMetadata metadata={currentDraft.media_metadata} />
                     )}
                     {latestRev?.media_analysis && (
+                      <TranscriptReview
+                        analysis={latestRev.media_analysis}
+                        value={mediaTranscriptText}
+                        confirmed={transcriptConfirmationChecked}
+                        editable={currentUser.role === 'admin' || currentDraft.author_id === currentUser.id}
+                        saving={savingTranscript}
+                        onChange={setMediaTranscriptText}
+                        onConfirmChange={setTranscriptConfirmationChecked}
+                        onSave={handleSaveTranscript}
+                      />
+                    )}
+                    {latestRev?.media_analysis && (
                       <MediaAnalysis
                         analysis={latestRev.media_analysis}
                         flags={flags}
@@ -1027,6 +1088,11 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
                           if (mediaElementRef.current && Number.isFinite(time)) {
                             mediaElementRef.current.currentTime = time;
                             mediaElementRef.current.play().catch(() => {});
+                          }
+                        }}
+                        onFrameSeek={(time) => {
+                          if (mediaElementRef.current && Number.isFinite(time)) {
+                            mediaElementRef.current.currentTime = time;
                           }
                         }}
                       />
@@ -1443,7 +1509,73 @@ function MediaMetadata({ metadata }) {
   );
 }
 
-function MediaAnalysis({ analysis, flags = [], onSeek }) {
+function TranscriptReview({
+  analysis,
+  value,
+  confirmed,
+  editable,
+  saving,
+  onChange,
+  onConfirmChange,
+  onSave
+}) {
+  const hasTranscript = Boolean(analysis.transcript?.trim());
+  return (
+    <div className="rounded-xl border border-[#1F2A4A] bg-[#0E1428] p-3 text-xs space-y-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="font-bold text-[#E8ECF8]">Transcript review</div>
+        <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+          confirmed
+            ? 'border-[#34D399]/30 bg-[#34D399]/10 text-[#34D399]'
+            : 'border-[#FBBF24]/30 bg-[#FBBF24]/10 text-[#FBBF24]'
+        }`}>
+          {confirmed ? 'Creator confirmed' : hasTranscript ? 'Review required' : 'Transcript unavailable'}
+        </span>
+      </div>
+      <p className="text-[11px] text-[#7C88AB]">
+        Source: {analysis.transcript_source || 'not available'}. Review generated text against the media before confirming.
+      </p>
+      <textarea
+        value={value}
+        onChange={event => onChange(event.target.value)}
+        disabled={!editable || saving}
+        maxLength={50000}
+        rows={5}
+        aria-label="Editable media transcript"
+        placeholder="No transcript was extracted. Paste a transcript or captions after reviewing the media."
+        className="w-full rounded-xl border border-[#1F2A4A] bg-[#111830] px-3 py-2 text-xs text-[#E8ECF8] placeholder-[#7C88AB] focus:border-[#4F6BED] focus:outline-none disabled:opacity-70"
+      />
+      {editable ? (
+        <>
+          <label className="flex items-start gap-2 text-[11px] text-[#AAB4D0]">
+            <input
+              type="checkbox"
+              checked={confirmed}
+              disabled={!value.trim() || saving}
+              onChange={event => onConfirmChange(event.target.checked)}
+              className="mt-0.5 accent-[#34D399]"
+            />
+            <span>I reviewed this transcript against the audio/video and confirm it is accurate.</span>
+          </label>
+          <button
+            type="button"
+            onClick={onSave}
+            disabled={saving}
+            className="rounded-lg bg-[#4F6BED] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#6479F2] disabled:cursor-wait disabled:opacity-60"
+          >
+            {saving ? 'Saving & scanning...' : confirmed ? 'Save confirmed transcript & re-scan' : 'Save transcript for review'}
+          </button>
+        </>
+      ) : (
+        <p className="text-[11px] text-[#7C88AB]">
+          Only the draft creator or an administrator can edit and confirm this transcript.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function MediaAnalysis({ analysis, flags = [], onSeek, onFrameSeek }) {
   const missing = analysis.missing_capabilities || [];
   const findings = analysis.findings || [];
   const timedFlags = flags.filter(
@@ -1454,14 +1586,18 @@ function MediaAnalysis({ analysis, flags = [], onSeek }) {
     <div className="rounded-xl border border-[#1F2A4A] bg-[#0E1428] p-3 text-[11px] text-[#AAB4D0] space-y-2">
       <div className="font-bold text-[#E8ECF8]">Content extraction evidence</div>
       <div className={`font-medium ${missing.length ? 'text-[#FBBF24]' : 'text-[#34D399]'}`}>
-        Status: {analysis.extraction_status || 'unknown'}
-        {missing.length ? ` • Missing: ${missing.join(', ')}` : ''}
+        {missing.length ? 'Human review required' : 'Extraction complete'}
       </div>
-      {analysis.transcript && (
-        <div className="line-clamp-3">
-          <span className="text-[#7C88AB]">Transcript:</span> {analysis.transcript}
-        </div>
-      )}
+      <div className="text-[11px] text-[#AAB4D0]">
+        Transcription: {analysis.capabilities?.speech_to_text ? 'available' : 'unavailable'}
+        {' • '}Transcript confirmation: {analysis.transcript_confirmed ? 'confirmed' : 'not confirmed'}
+        {analysis.capabilities?.video_frame_extraction !== null && analysis.capabilities?.video_frame_extraction !== undefined
+          ? ` • Video frame extraction: ${analysis.capabilities.video_frame_extraction ? 'available' : 'unavailable'}`
+          : ''}
+        {analysis.capabilities?.ocr !== null && analysis.capabilities?.ocr !== undefined
+          ? ` • Frame OCR: ${analysis.capabilities.ocr ? 'text detected' : 'unavailable or no text detected'}`
+          : ''}
+      </div>
       {analysis.ocr_text && (
         <div className="line-clamp-3">
           <span className="text-[#7C88AB]">OCR:</span> {analysis.ocr_text}
@@ -1469,7 +1605,51 @@ function MediaAnalysis({ analysis, flags = [], onSeek }) {
       )}
       {findings.length > 0 && (
         <div className="text-[#7C88AB]">
-          {findings.length} sampled frame(s) analyzed; findings include frame/timestamp evidence.
+          {findings.length} sampled frame(s) extracted. Select a frame to inspect that point in the video.
+        </div>
+      )}
+      {findings.length > 0 && (
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          {findings.map(frame => (
+            <button
+              key={frame.frame_number}
+              type="button"
+              onClick={() => onFrameSeek?.(frame.timestamp_seconds)}
+              className="overflow-hidden rounded-lg border border-[#1F2A4A] bg-[#111830] text-left hover:border-[#4F6BED]"
+              title={`Seek to ${frame.timestamp_seconds}s`}
+            >
+              {frame.image_url ? (
+                <img
+                  src={mediaUrl(frame.image_url)}
+                  alt={`Sampled frame ${frame.frame_number}`}
+                  onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                  className="aspect-video w-full object-contain bg-black"
+                />
+              ) : (
+                <div className="flex aspect-video items-center justify-center bg-black text-[10px] text-[#7C88AB]">
+                  Frame preview unavailable
+                </div>
+              )}
+              <span className="block p-1.5 font-mono text-[10px] text-[#60A5FA]">
+                Frame {frame.frame_number} · {Number(frame.timestamp_seconds || 0).toFixed(1)}s
+              </span>
+              {frame.text && (
+                <span className="block line-clamp-2 px-1.5 pb-1.5 text-[10px] text-[#AAB4D0]">
+                  {frame.text}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+      {missing.length > 0 && (
+        <div className="rounded-lg border border-[#FBBF24]/20 bg-[#FBBF24]/5 p-2 text-[11px] text-[#FBBF24]">
+          Not fully assessed: {missing.map(item => ({
+            speech_to_text: 'speech transcription unavailable',
+            transcript_confirmation: 'transcript not reviewed and confirmed',
+            video_frame_extraction: 'video frames could not be sampled',
+            ocr: 'text in sampled frames could not be extracted'
+          })[item] || item.replaceAll('_', ' ')).join('; ')}. This revision remains in human review.
         </div>
       )}
       {timedFlags.length > 0 && (

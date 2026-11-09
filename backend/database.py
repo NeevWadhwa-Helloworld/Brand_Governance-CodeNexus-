@@ -166,10 +166,27 @@ def _init_postgres_db():
             action TEXT NOT NULL, details TEXT NOT NULL, timestamp TEXT NOT NULL,
             previous_hash TEXT, entry_hash TEXT
         );
+        CREATE TABLE IF NOT EXISTS evaluation_samples (
+            id TEXT PRIMARY KEY,
+            org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+            guideline_version_id TEXT NOT NULL REFERENCES guideline_versions(id) ON DELETE CASCADE,
+            reviewer_id TEXT NOT NULL REFERENCES users(id),
+            title TEXT NOT NULL,
+            content_type TEXT NOT NULL CHECK(content_type IN ('text', 'audio', 'video')),
+            content_text TEXT NOT NULL,
+            media_filename TEXT,
+            expected_rules TEXT NOT NULL,
+            applicable_rules TEXT NOT NULL,
+            label_notes TEXT,
+            reviewed_at TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
         CREATE INDEX IF NOT EXISTS idx_rules_version ON rules(version_id);
         CREATE INDEX IF NOT EXISTS idx_flags_revision ON flags(revision_id);
         CREATE INDEX IF NOT EXISTS idx_drafts_org ON drafts(org_id);
         CREATE INDEX IF NOT EXISTS idx_audit_draft ON audit_logs(draft_id);
+        CREATE INDEX IF NOT EXISTS idx_evaluation_samples_org_version
+            ON evaluation_samples(org_id, guideline_version_id, reviewed_at);
         """)
         cursor.execute("ALTER TABLE rules ADD COLUMN IF NOT EXISTS embedding_json TEXT")
         cursor.execute(
@@ -487,6 +504,30 @@ def _init_sqlite_db():
             entry_hash TEXT
         );
         """)
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS evaluation_samples (
+            id TEXT PRIMARY KEY,
+            org_id TEXT NOT NULL,
+            guideline_version_id TEXT NOT NULL,
+            reviewer_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            content_type TEXT NOT NULL CHECK(content_type IN ('text', 'audio', 'video')),
+            content_text TEXT NOT NULL,
+            media_filename TEXT,
+            expected_rules TEXT NOT NULL,
+            applicable_rules TEXT NOT NULL,
+            label_notes TEXT,
+            reviewed_at TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (org_id) REFERENCES organizations(id) ON DELETE CASCADE,
+            FOREIGN KEY (guideline_version_id) REFERENCES guideline_versions(id) ON DELETE CASCADE,
+            FOREIGN KEY (reviewer_id) REFERENCES users(id)
+        );
+        """)
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_evaluation_samples_org_version "
+            "ON evaluation_samples(org_id, guideline_version_id, reviewed_at)"
+        )
         cursor.execute("PRAGMA table_info(audit_logs)")
         audit_columns = {row["name"] for row in cursor.fetchall()}
         if "previous_hash" not in audit_columns:

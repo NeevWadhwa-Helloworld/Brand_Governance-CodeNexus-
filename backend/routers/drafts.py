@@ -3,7 +3,7 @@ import shutil
 import json
 import logging
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Header, Depends
 from fastapi.responses import JSONResponse
@@ -11,7 +11,7 @@ from backend.database import get_db
 from backend.config import settings
 from backend.schemas import (
     DraftCreate, DraftUpdate, DraftDetail, RevisionItem, FlagItem,
-    ScanResponse, ApprovalDecisionRequest, CommentCreate
+    ScanResponse, ApprovalDecisionRequest, CommentCreate, TranscriptUpdate
 )
 from backend.services.scanner import Scanner
 from backend.services.audit_service import AuditService
@@ -165,6 +165,7 @@ async def upload_media_draft(
     title: str = Form(...),
     media_type: str = Form(...),
     transcript: str = Form(""),
+    transcript_confirmed: bool = Form(False),
     file: UploadFile = File(...),
     org_id: Optional[str] = Form(None),
     current_user: dict = Depends(get_current_user),
@@ -195,7 +196,13 @@ async def upload_media_draft(
 
     AuditService.log(
         org_id, x_user_id, "draft_media_uploaded",
-        {"title": title, "media_type": media_type, "metadata": metadata, "has_transcript": bool(transcript.strip())},
+        {
+            "title": title,
+            "media_type": media_type,
+            "metadata": metadata,
+            "has_transcript": bool(transcript.strip()),
+            "transcript_confirmed": transcript_confirmed,
+        },
         draft_id=draft_id,
     )
     await Scanner.scan_draft(
@@ -203,6 +210,8 @@ async def upload_media_draft(
         x_user_id,
         content_text=transcript.strip() or None,
         image_path=None,
+        transcript_confirmed=transcript_confirmed,
+        transcript_source="creator" if transcript.strip() else None,
     )
     return get_draft(draft_id, current_user)
 
@@ -229,17 +238,6 @@ async def replace_draft_media(
         if draft["content_type"] not in {"image", "audio", "video"}:
             raise HTTPException(status_code=409, detail="This draft does not contain a media asset.")
         new_version = draft["current_version"] + 1
-        prior_content_text = None
-        if draft["content_type"] in {"audio", "video"}:
-            cursor.execute("""
-                SELECT content_text FROM revisions
-                WHERE draft_id = ? AND version_num = ?
-                ORDER BY created_at DESC, id DESC
-                LIMIT 1
-            """, (draft_id, draft["current_version"]))
-            prior_revision = cursor.fetchone()
-            if prior_revision:
-                prior_content_text = prior_revision["content_text"]
 
     suffix = Path(file.filename or "").suffix or ".bin"
     saved_filename = f"{uuid.uuid4()}{suffix}"
@@ -276,8 +274,8 @@ async def replace_draft_media(
     await Scanner.scan_draft(
         draft_id,
         current_user["id"],
-        content_text=prior_content_text,
         image_path=str(destination),
+        reset_transcript=True,
     )
     return get_draft(draft_id, current_user)
 
@@ -315,6 +313,77 @@ def get_draft(draft_id: str, current_user: dict = Depends(get_current_user)):
             "latest_revision": latest_revision,
             "history": history
         }
+
+@router.put("/{draft_id}/transcript", response_model=DraftDetail)
+async def update_media_transcript(
+    draft_id: str,
+    transcript_in: TranscriptUpdate,
+    current_user: dict = Depends(get_current_user),
+):
+    transcript = transcript_in.transcript.strip()
+    if transcript_in.confirmed and not transcript:
+        raise HTTPException(
+            status_code=422,
+            detail="A transcript must contain text before it can be confirmed.",
+        )
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT * FROM drafts WHERE id = ? AND org_id = ?",
+            (draft_id, current_user["org_id"]),
+        )
+        draft = cursor.fetchone()
+        if not draft:
+            raise HTTPException(status_code=404, detail="Draft not found")
+        if draft["content_type"] not in {"audio", "video"}:
+            raise HTTPException(
+                status_code=409,
+                detail="Transcripts can only be edited for audio and video drafts.",
+            )
+        if current_user["role"] != "admin" and draft["author_id"] != current_user["id"]:
+            raise HTTPException(
+                status_code=403,
+                detail="Only the draft creator or an administrator can edit its transcript.",
+            )
+        version = draft["current_version"] + 1
+        now = datetime.now(timezone.utc).isoformat()
+        cursor.execute(
+            """
+            UPDATE drafts SET current_version = ?, status = 'In Revision', updated_at = ?
+            WHERE id = ? AND org_id = ?
+            """,
+            (version, now, draft_id, current_user["org_id"]),
+        )
+
+    AuditService.log(
+        draft["org_id"],
+        current_user["id"],
+        "media_transcript_updated",
+        {
+            "version": version,
+            "character_count": len(transcript),
+            "confirmed": transcript_in.confirmed,
+        },
+        draft_id=draft_id,
+    )
+    try:
+        await Scanner.scan_draft(
+            draft_id,
+            current_user["id"],
+            content_text=transcript,
+            transcript_confirmed=transcript_in.confirmed,
+            transcript_source="creator",
+        )
+    except Exception as exc:
+        logger.exception("Transcript saved but scan failed for draft %s", draft_id)
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "message": "Transcript was saved, but scanning failed. Retry the scan before submitting.",
+                "draft_id": draft_id,
+            },
+        ) from exc
+    return get_draft(draft_id, current_user)
 
 @router.put("/{draft_id}")
 async def update_draft(

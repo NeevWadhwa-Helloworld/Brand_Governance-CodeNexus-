@@ -12,6 +12,7 @@ import AnalyticsDashboard from './components/AnalyticsDashboard';
 import BenchmarkSuite from './components/BenchmarkSuite';
 import AuditSecurity from './components/AuditSecurity';
 import UserManagement from './components/UserManagement';
+import MCPHub from './components/MCPHub';
 
 const TOAST_CONFIGS = {
   success: {
@@ -45,9 +46,9 @@ const TOAST_CONFIGS = {
 };
 
 const ROLE_TABS = {
-  creator: ['studio', 'analytics'],
-  reviewer: ['approvals', 'analytics', 'audit'],
-  admin: ['brain', 'studio', 'approvals', 'analytics', 'evaluation', 'audit', 'users']
+  creator: ['studio', 'analytics', 'mcp'],
+  reviewer: ['approvals', 'analytics', 'evaluation', 'mcp', 'audit'],
+  admin: ['brain', 'studio', 'approvals', 'analytics', 'evaluation', 'mcp', 'audit', 'users']
 };
 
 export default function App() {
@@ -318,7 +319,11 @@ export default function App() {
             )}
 
             {activeTab === 'evaluation' && (
-              <BenchmarkSuite />
+              <BenchmarkSuite currentUser={currentUser} />
+            )}
+
+            {activeTab === 'mcp' && (
+              <MCPHub currentUser={currentUser} showToast={showToast} />
             )}
 
             {activeTab === 'audit' && (

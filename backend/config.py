@@ -18,12 +18,18 @@ class Settings:
     DEBUG: bool = os.getenv("DEBUG", "False").lower() in ("true", "1", "yes")
     CORS_ORIGINS: list[str] = [
         origin.strip().rstrip("/")
-        for origin in os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173").split(",")
+        for origin in os.getenv(
+            "CORS_ORIGINS",
+            "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,http://127.0.0.1:3000,https://brand-governance-code-nexu.vercel.app,https://brand-governance-codenexus.onrender.com"
+        ).split(",")
         if origin.strip().rstrip("/")
     ]
     TRUSTED_HOSTS: list[str] = [
         host.strip()
-        for host in os.getenv("TRUSTED_HOSTS", "localhost,127.0.0.1").split(",")
+        for host in os.getenv(
+            "TRUSTED_HOSTS",
+            "localhost,127.0.0.1,testserver,brand-governance-codenexus.onrender.com,*.onrender.com,brand-governance-code-nexu.vercel.app,*.vercel.app"
+        ).split(",")
         if host.strip()
     ]
     RENDER_EXTERNAL_HOSTNAME: str = os.getenv("RENDER_EXTERNAL_HOSTNAME", "").strip()
@@ -38,8 +44,12 @@ class Settings:
     DB_PATH: Path = BASE_DIR / "brand_governance.db"
     is_postgres: bool = DATABASE_URL.startswith(("postgresql://", "postgres://"))
     MAX_UPLOAD_SIZE_MB: int = int(os.getenv("MAX_UPLOAD_SIZE_MB", "100"))
+    MCP_REQUESTS_PER_MINUTE: int = int(os.getenv("MCP_REQUESTS_PER_MINUTE", "60"))
 
-    # AI & LLM Settings
+    # AI & Model Provider Settings (Phase 5 Provider Boundary)
+    MODEL_PROVIDER: str = os.getenv("MODEL_PROVIDER", "auto").strip().lower()
+    LOCAL_MODEL_URL: str = os.getenv("LOCAL_MODEL_URL", "http://127.0.0.1:11434/v1").strip()
+    LOCAL_MODEL_NAME: str = os.getenv("LOCAL_MODEL_NAME", "llama3.2").strip()
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
     GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
     EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "gemini-embedding-001")
@@ -55,6 +65,9 @@ class Settings:
     STATIC_ROOT: Path = Path(os.getenv("STATIC_ROOT", str(BASE_DIR / "backend" / "static")))
     STATIC_UPLOAD_DIR: Path = STATIC_ROOT / "uploads"
     STATIC_LOGO_DIR: Path = STATIC_ROOT / "logos"
+    EVALUATION_UPLOAD_DIR: Path = Path(
+        os.getenv("EVALUATION_UPLOAD_DIR", str(BASE_DIR / "evaluation_assets"))
+    )
 
 settings = Settings()
 
@@ -76,3 +89,4 @@ if settings.ENVIRONMENT.lower() in {"production", "staging"}:
 # Ensure directories exist
 settings.STATIC_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 settings.STATIC_LOGO_DIR.mkdir(parents=True, exist_ok=True)
+settings.EVALUATION_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)

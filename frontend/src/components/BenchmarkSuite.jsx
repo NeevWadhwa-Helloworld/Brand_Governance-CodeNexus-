@@ -5,11 +5,22 @@ import {
   Search, Loader2
 } from 'lucide-react';
 
-export default function BenchmarkSuite() {
+export default function BenchmarkSuite({ currentUser }) {
   const [report, setReport] = useState(null);
+  const [dataset, setDataset] = useState({ samples: [], active_rule_ids: [] });
   const [running, setRunning] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [savingSample, setSavingSample] = useState(false);
+  const [sampleFormOpen, setSampleFormOpen] = useState(false);
+  const [sampleFormError, setSampleFormError] = useState('');
+  const [sampleTitle, setSampleTitle] = useState('');
+  const [sampleType, setSampleType] = useState('text');
+  const [sampleContent, setSampleContent] = useState('');
+  const [expectedRules, setExpectedRules] = useState('');
+  const [applicableRules, setApplicableRules] = useState('');
+  const [labelNotes, setLabelNotes] = useState('');
+  const [sampleFile, setSampleFile] = useState(null);
   const [sampleFilter, setSampleFilter] = useState('all'); // all, passed, failed
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -19,6 +30,7 @@ export default function BenchmarkSuite() {
     try {
       const res = await api.getLatestEvaluation();
       setReport(res);
+      setDataset(await api.getEvaluationSamples());
     } catch (e) {
       console.error(e);
       setError(e.message || 'Failed to load the latest benchmark.');
@@ -37,6 +49,7 @@ export default function BenchmarkSuite() {
     try {
       const res = await api.runEvaluation();
       setReport(res);
+      setDataset(await api.getEvaluationSamples());
     } catch (e) {
       console.error(e);
       setError(e.message || 'Benchmark execution failed.');
@@ -45,20 +58,62 @@ export default function BenchmarkSuite() {
     }
   }
 
+  async function handleSaveSample(event) {
+    event.preventDefault();
+    setSavingSample(true);
+    setSampleFormError('');
+    try {
+      const formData = new FormData();
+      formData.append('title', sampleTitle);
+      formData.append('content_type', sampleType);
+      formData.append('content_text', sampleContent);
+      formData.append('expected_rules', JSON.stringify(parseRuleIds(expectedRules)));
+      formData.append('applicable_rules', JSON.stringify(parseRuleIds(applicableRules)));
+      formData.append('label_notes', labelNotes);
+      if (sampleFile) formData.append('media_file', sampleFile);
+      await api.createEvaluationSample(formData);
+      setSampleTitle('');
+      setSampleType('text');
+      setSampleContent('');
+      setExpectedRules('');
+      setApplicableRules('');
+      setLabelNotes('');
+      setSampleFile(null);
+      setSampleFormOpen(false);
+      await loadBenchmark();
+    } catch (e) {
+      console.error(e);
+      setSampleFormError(e.message || 'Could not save reviewed example.');
+    } finally {
+      setSavingSample(false);
+    }
+  }
+
+  function parseRuleIds(value) {
+    return [...new Set(value.split(',').map(rule => rule.trim()).filter(Boolean))];
+  }
+
+  function addApplicableRule(ruleId) {
+    const ids = parseRuleIds(applicableRules);
+    if (!ids.includes(ruleId)) setApplicableRules([...ids, ruleId].join(', '));
+  }
+
   const sampleResults = report?.sample_results || [];
-  const passedSamplesCount = sampleResults.filter(s => s.passed).length;
+  const isSamplePassed = (s) => Boolean(s.passed ?? s.exact_rule_match);
+  const passedSamplesCount = sampleResults.filter(isSamplePassed).length;
   const failedSamplesCount = sampleResults.length - passedSamplesCount;
   const passRate = sampleResults.length > 0
     ? Math.round((passedSamplesCount / sampleResults.length) * 100)
     : null;
 
   const filteredSamples = sampleResults.filter(sample => {
+    const passed = isSamplePassed(sample);
     const matchesFilter =
       sampleFilter === 'all'
         ? true
         : sampleFilter === 'passed'
-        ? sample.passed
-        : !sample.passed;
+        ? passed
+        : !passed;
 
     const matchesSearch =
       !searchQuery.trim() ||
@@ -84,7 +139,7 @@ export default function BenchmarkSuite() {
             </h2>
           </div>
           <p className="text-xs text-[#7C88AB] mt-1 ml-10.5">
-            Run labeled test samples and review their measured results.
+            Evaluate scans against reviewer-labeled examples. Synthetic fixtures are not counted as quality evidence.
           </p>
         </div>
 
@@ -125,6 +180,159 @@ export default function BenchmarkSuite() {
         </div>
       )}
 
+      {report && (
+        <div className="space-y-4 rounded-2xl border border-[#FBBF24]/30 bg-[#FBBF24]/5 p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-bold text-[#E8ECF8]">Human-reviewed evaluation dataset</h3>
+              <p className="mt-1 text-xs text-[#AAB4D0]">
+                {report.dataset_provenance} · {report.total_test_samples} sample(s) · {report.dataset_version}
+              </p>
+            </div>
+            {['reviewer', 'admin'].includes(currentUser?.role) && (
+              <button
+                type="button"
+                onClick={() => setSampleFormOpen(value => !value)}
+                className="rounded-lg border border-[#4F6BED]/40 bg-[#4F6BED]/15 px-3 py-1.5 text-xs font-semibold text-[#AAB4D0] hover:text-white"
+              >
+                {sampleFormOpen ? 'Cancel' : 'Add human-reviewed sample'}
+              </button>
+            )}
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            {Object.entries(report.metrics_by_content_type || {}).map(([type, metrics]) => (
+              <div key={type} className="rounded-xl border border-[#1F2A4A] bg-[#0E1428] p-3 text-xs">
+                <div className="font-bold capitalize text-[#E8ECF8]">{type} · {metrics.sample_count} samples</div>
+                <div className="mt-1 text-[#AAB4D0]">
+                  Precision {metrics.precision ?? '—'}% · Recall {metrics.recall ?? '—'}% · FP {metrics.fp}
+                </div>
+                <div className="mt-1 text-[#7C88AB]">
+                  Retrieval {metrics.rule_retrieval_coverage ?? '—'}% · Mean {metrics.mean_latency_seconds ?? '—'}s · p95 {metrics.p95_latency_seconds ?? '—'}s
+                </div>
+                {metrics.media_sample_count > 0 && (
+                  <div className="mt-1 text-[#7C88AB]">
+                    Extraction complete {metrics.media_extraction_complete}/{metrics.media_sample_count}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+          <ul className="list-disc space-y-1 pl-5 text-[11px] text-[#AAB4D0]">
+            {(report.dataset_limitations || []).map((limitation, index) => <li key={index}>{limitation}</li>)}
+          </ul>
+
+          {dataset.samples.length > 0 && (
+            <div className="space-y-2">
+              <h4 className="text-xs font-bold text-[#E8ECF8]">Current reviewer-labeled examples</h4>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {dataset.samples.map(sample => (
+                  <div key={sample.id} className="rounded-lg border border-[#1F2A4A] bg-[#0E1428] p-3 text-[11px]">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="font-semibold text-[#E8ECF8]">{sample.title}</span>
+                      <span className="capitalize text-[#7C88AB]">{sample.content_type} · {sample.reviewer_name}</span>
+                    </div>
+                    <p className="mt-1 text-[#AAB4D0]">
+                      Violations: {sample.expected_rules.length ? sample.expected_rules.join(', ') : 'None (benign)'}
+                    </p>
+                    {sample.label_notes && <p className="mt-1 text-[#7C88AB]">{sample.label_notes}</p>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {sampleFormOpen && (
+            <form onSubmit={handleSaveSample} className="space-y-3 rounded-xl border border-[#1F2A4A] bg-[#0E1428] p-4">
+              <p className="text-xs text-[#AAB4D0]">
+                Only a reviewer/admin can label cases. For media, upload the original file and enter the human-verified transcript/caption evidence. Add every applicable active rule, and identify which rules are actual violations. Benign near-misses should have no expected violation rules.
+              </p>
+              <input
+                required
+                maxLength={200}
+                value={sampleTitle}
+                onChange={event => setSampleTitle(event.target.value)}
+                placeholder="Example title (e.g. benign near-miss: informal greeting)"
+                className="w-full rounded-lg border border-[#1F2A4A] bg-[#111830] px-3 py-2 text-xs text-[#E8ECF8]"
+              />
+              <select
+                value={sampleType}
+                onChange={event => {
+                  setSampleType(event.target.value);
+                  setSampleFile(null);
+                }}
+                className="rounded-lg border border-[#1F2A4A] bg-[#111830] px-3 py-2 text-xs text-[#E8ECF8]"
+              >
+                <option value="text">Text</option>
+                <option value="audio">Audio</option>
+                <option value="video">Video</option>
+              </select>
+              {sampleType !== 'text' && (
+                <input
+                  type="file"
+                  required
+                  accept={sampleType === 'audio' ? 'audio/*' : 'video/*'}
+                  onChange={event => setSampleFile(event.target.files?.[0] || null)}
+                  className="block w-full text-xs text-[#AAB4D0]"
+                />
+              )}
+              <textarea
+                required
+                maxLength={50000}
+                rows={4}
+                value={sampleContent}
+                onChange={event => setSampleContent(event.target.value)}
+                placeholder={sampleType === 'text' ? 'Reviewed example content' : 'Human-verified transcript, captions, and relevant on-screen text'}
+                className="w-full rounded-lg border border-[#1F2A4A] bg-[#111830] px-3 py-2 text-xs text-[#E8ECF8]"
+              />
+              <div className="grid gap-3 md:grid-cols-2">
+                <input
+                  value={expectedRules}
+                  onChange={event => setExpectedRules(event.target.value)}
+                  placeholder="Expected violation rule IDs (comma-separated; empty for benign)"
+                  className="w-full rounded-lg border border-[#1F2A4A] bg-[#111830] px-3 py-2 text-xs text-[#E8ECF8]"
+                />
+                <input
+                  required
+                  value={applicableRules}
+                  onChange={event => setApplicableRules(event.target.value)}
+                  placeholder="Applicable rule IDs (comma-separated)"
+                  className="w-full rounded-lg border border-[#1F2A4A] bg-[#111830] px-3 py-2 text-xs text-[#E8ECF8]"
+                />
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {(dataset.active_rule_ids || []).map(ruleId => (
+                  <button
+                    key={ruleId}
+                    type="button"
+                    onClick={() => addApplicableRule(ruleId)}
+                    className="rounded border border-[#1F2A4A] px-1.5 py-0.5 font-mono text-[10px] text-[#60A5FA] hover:border-[#4F6BED]"
+                    title="Add this active rule to applicable rules"
+                  >
+                    {ruleId}
+                  </button>
+                ))}
+              </div>
+              <textarea
+                rows={2}
+                maxLength={2000}
+                value={labelNotes}
+                onChange={event => setLabelNotes(event.target.value)}
+                placeholder="Reviewer rationale / labeling notes"
+                className="w-full rounded-lg border border-[#1F2A4A] bg-[#111830] px-3 py-2 text-xs text-[#E8ECF8]"
+              />
+              {sampleFormError && <p role="alert" className="text-xs text-[#F87171]">{sampleFormError}</p>}
+              <button
+                type="submit"
+                disabled={savingSample}
+                className="rounded-lg bg-[#4F6BED] px-4 py-2 text-xs font-semibold text-white disabled:opacity-60"
+              >
+                {savingSample ? 'Saving reviewed sample...' : 'Save human-reviewed sample'}
+              </button>
+            </form>
+          )}
+        </div>
+      )}
+
       {loading && !report ? (
         <div className="space-y-4 py-8">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -143,7 +351,7 @@ export default function BenchmarkSuite() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {report.metrics_summary.map((m, idx) => {
               const metricTitle = m.metric.split('(')[0].trim();
-              const isMeasured = m.passed !== null && m.passed !== undefined;
+              const isMeasured = m.measured !== 'Not measured';
               const isPassed = m.passed === true;
               return (
                 <div
@@ -272,7 +480,7 @@ export default function BenchmarkSuite() {
                   <div
                     key={sample.sample_id}
                     className={`bg-[#0E1428] border rounded-xl p-4 space-y-2.5 text-xs transition-colors ${
-                      sample.passed
+                      isSamplePassed(sample)
                         ? 'border-[#1F2A4A] hover:border-[#34D399]/40'
                         : 'border-[#F87171]/40 hover:border-[#F87171]'
                     }`}
@@ -291,11 +499,11 @@ export default function BenchmarkSuite() {
                           {(sample.latency_seconds * 1000).toFixed(0)} ms
                         </span>
                         <span className={`px-2.5 py-0.5 rounded-full font-bold uppercase text-[10px] tracking-wide border ${
-                          sample.passed
+                          isSamplePassed(sample)
                             ? 'bg-[#34D399]/15 text-[#34D399] border-[#34D399]/30'
                             : 'bg-[#F87171]/15 text-[#F87171] border-[#F87171]/30'
                         }`}>
-                          {sample.passed ? 'Exact Match' : 'Mismatch'}
+                          {isSamplePassed(sample) ? 'Exact Match' : 'Mismatch'}
                         </span>
                       </div>
                     </div>

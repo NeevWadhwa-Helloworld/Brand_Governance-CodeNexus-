@@ -26,6 +26,9 @@ class Scanner:
         user_id: str,
         content_text: Optional[str] = None,
         image_path: Optional[str] = None,
+        transcript_confirmed: Optional[bool] = None,
+        transcript_source: Optional[str] = None,
+        reset_transcript: bool = False,
     ) -> Dict[str, Any]:
         start_time = time.time()
         with get_db() as conn:
@@ -39,18 +42,36 @@ class Scanner:
             curr_version = draft["current_version"]
             content_type = draft["content_type"]
             media_ref = draft.get("content_ref")
-            if content_text is None and image_path is None:
+            prior_media_analysis = {}
+            if content_text is None and image_path is None and not reset_transcript:
                 if content_type == "text":
                     content_text = media_ref
                 else:
                     cursor.execute(
-                        "SELECT * FROM revisions WHERE draft_id = ? AND version_num = ?",
+                        "SELECT content_text, media_analysis FROM revisions "
+                        "WHERE draft_id = ? AND version_num <= ? "
+                        "ORDER BY created_at DESC, id DESC LIMIT 1",
                         (draft_id, curr_version),
                     )
                     revision = cursor.fetchone()
                     if revision:
-                        content_text = revision.get("content_text")
-                        image_path = revision.get("image_path")
+                        try:
+                            prior_media_analysis = json.loads(
+                                revision.get("media_analysis") or "{}"
+                            )
+                        except (TypeError, json.JSONDecodeError):
+                            prior_media_analysis = {}
+                        if content_type in {"audio", "video"}:
+                            content_text = prior_media_analysis.get("transcript")
+                            if transcript_source is None:
+                                transcript_source = prior_media_analysis.get("transcript_source")
+                            if transcript_confirmed is None:
+                                transcript_confirmed = bool(
+                                    prior_media_analysis.get("transcript_confirmed", False)
+                                )
+                        else:
+                            content_text = revision.get("content_text")
+                            image_path = revision.get("image_path")
 
         media_analysis = {}
         if content_type in {"image", "audio", "video"}:
@@ -60,24 +81,48 @@ class Scanner:
             if media_path:
                 if content_type == "image":
                     image_path = media_path
-                media_analysis = await asyncio.to_thread(
-                    MediaAnalyzer.analyze, media_path, content_type
+                artifact_dir = (
+                    settings.STATIC_ROOT
+                    / "frame_evidence"
+                    / draft_id
+                    / str(curr_version)
+                    if content_type == "video"
+                    else None
                 )
-                if content_text and content_type in {"audio", "video"}:
-                    media_analysis["transcript"] = content_text
-                    media_analysis["capabilities"]["speech_to_text"] = True
-                    media_analysis["missing_capabilities"] = [
-                        item for item in media_analysis.get("missing_capabilities", [])
-                        if item != "speech_to_text"
-                    ]
+                media_analysis = await asyncio.to_thread(
+                    MediaAnalyzer.analyze, media_path, content_type, artifact_dir
+                )
+                if content_type in {"audio", "video"}:
+                    manual_transcript = content_text is not None
+                    if manual_transcript:
+                        media_analysis["automatic_transcript"] = media_analysis.get("transcript", "")
+                        media_analysis["transcript"] = content_text.strip()
+                        media_analysis["transcript_source"] = transcript_source or "creator"
+                    media_analysis["transcript_confirmed"] = bool(transcript_confirmed)
+                    media_analysis["capabilities"]["human_transcript"] = bool(
+                        content_text and transcript_confirmed
+                    )
+                    missing = set(media_analysis.get("missing_capabilities", []))
+                    if content_text and transcript_confirmed:
+                        missing.discard("speech_to_text")
+                        missing.discard("transcript_confirmation")
+                    elif media_analysis.get("transcript"):
+                        missing.add("transcript_confirmation")
+                    else:
+                        missing.add("transcript_confirmation")
+                    media_analysis["missing_capabilities"] = sorted(missing)
                     media_analysis["extraction_status"] = (
-                        "complete" if not media_analysis["missing_capabilities"] else "needs_review"
+                        "complete" if not missing else "needs_review"
                     )
                 extracted_text = media_analysis.get("extracted_text", "").strip()
+                if content_type in {"audio", "video"}:
+                    transcript = media_analysis.get("transcript", "").strip()
+                    ocr_text = media_analysis.get("ocr_text", "").strip()
+                    extracted_text = "\n".join(
+                        part for part in (transcript, ocr_text) if part
+                    )
                 if extracted_text:
-                    content_text = "\n".join(
-                        part for part in [content_text, extracted_text] if part
-                    ).strip()
+                    content_text = extracted_text
 
         coverage_status, coverage_reason = cls._assess_policy_coverage(
             org_id, content_text, image_path, content_type
@@ -93,11 +138,19 @@ class Scanner:
             )
         missing_capabilities = media_analysis.get("missing_capabilities", [])
         if missing_capabilities:
+            reason_labels = {
+                "speech_to_text": "speech could not be transcribed",
+                "transcript_confirmation": "the transcript has not been reviewed and confirmed",
+                "video_frame_extraction": "video frames could not be sampled",
+                "ocr": "text in sampled video frames could not be extracted",
+            }
+            gaps = [
+                reason_labels.get(item, item.replace("_", " "))
+                for item in missing_capabilities
+            ]
             coverage_status = "needs_review"
-            extraction_reason = "Media extraction is incomplete: " + ", ".join(missing_capabilities) + "."
-            coverage_reason = " ".join(
-                reason for reason in (coverage_reason, extraction_reason) if reason
-            )
+            extraction_reason = "Human review required: " + "; ".join(gaps) + "."
+            coverage_reason = " ".join(filter(None, (coverage_reason, extraction_reason)))
 
         layer1_task = asyncio.to_thread(
             DeterministicEngine.run_all,

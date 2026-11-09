@@ -44,6 +44,9 @@ class EvaluationTimestampTests(unittest.TestCase):
             def execute(self, *_args, **_kwargs):
                 return None
 
+            def fetchone(self):
+                return None
+
             def fetchall(self):
                 return [{
                     "draft_id": "draft-test",
@@ -66,17 +69,21 @@ class EvaluationTimestampTests(unittest.TestCase):
         ):
             report = EvaluationService.run_benchmark("org-test")
 
-        self.assertEqual(report["total_test_samples"], 5)
+        self.assertEqual(report["total_test_samples"], 0)
         self.assertEqual(report["avg_approval_turnaround_seconds"], 86400.0)
-        self.assertEqual(report["labelled_sample_pass_rate"], 40.0)
+        self.assertIsNone(report["labelled_sample_pass_rate"])
         self.assertIsNone(report["flag_precision"])
         self.assertEqual(report["metrics_summary"][0]["measured"], "Not measured")
         self.assertIsNone(report["metrics_summary"][1]["passed"])
+        self.assertIn("No human-reviewed examples", report["dataset_provenance"])
         BenchmarkReport.model_validate(report)
 
     def test_benchmark_reports_missing_operational_data_as_unmeasured(self):
         class Cursor:
             def execute(self, *_args, **_kwargs):
+                return None
+
+            def fetchone(self):
                 return None
 
             def fetchall(self):

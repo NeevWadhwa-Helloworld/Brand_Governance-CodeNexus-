@@ -2,7 +2,7 @@
 
 **Compared against:** `Brand_Governance_Plan (1).pdf` (Round 1 plan, dated November 3, 2026)  
 **Project checked:** `Brand_Governance_Plan`  
-**Report date:** November 6, 2026
+**Report date:** November 9, 2026
 
 ## Executive summary
 
@@ -12,12 +12,13 @@ portion of the Round 3 polish:
 `login -> create/upload draft -> two-layer scan -> explain flags -> accept/edit/dismiss ->
 comments -> submit -> reviewer approval -> audit trail/certificate -> analytics`
 
-The core text and image demonstrations work locally. The implementation is not yet a
-complete production implementation of every item in the PDF. The largest remaining gaps
-are production integrations, real vector-embedding RAG, OCR and full multimodal
-audio/video review, the planned Rust service, enterprise security/deployment features,
-continuous learning, multilingual/regional rules, and a formally labelled reviewer
-precision study.
+The core text and image demonstrations work locally. The Round 3 media-review,
+human-labelled evaluation, and read-only MCP workflows are now implemented in the local
+and deployment-source copies. Evaluation metrics correctly remain unmeasured until
+reviewers label real examples. The largest remaining gaps are production integrations,
+enterprise security/deployment features, registered-client authorization for MCP, the
+planned Rust service, continuous learning, multilingual/regional rules, and collecting
+enough representative reviewer-labelled data to support quality claims.
 
 ## Requirement status
 
@@ -40,14 +41,14 @@ precision study.
 | Tenant isolation and RBAC | **Works for implemented API surfaces** | JWT authentication, organization checks, and role checks are present. This is not a substitute for a production identity provider/SSO deployment. |
 | Governance analytics | **Works locally** | Dashboard includes trends, flagged terms, categories, and operational metrics. Guideline-refinement recommendations appear only when repeated flags and creator dismissals provide evidence; no generic recommendation is fabricated when evidence is absent. |
 | Alignment score | **Application-derived, not Gemini-generated** | `scanner.py` starts at 100 and subtracts 15 points per deterministic finding or 12 per semantic finding, with a 10-point floor. If policy coverage is incomplete, the score is capped at 99 and shown as provisional. An unscanned draft has no score; the UI labels it “Not scanned.” The PDF does not define this score formula. |
-| Success metrics | **Partial** | The benchmark suite executes a five-sample labelled dataset and measures scan latency/flag matching. The precision labels are code-defined synthetic samples, not an independently collected reviewer study. First-pass compliance is derived from that dataset. |
+| Scan-quality evaluation | **Implemented; evidence pending** | Reviewers/admins can label versioned text, audio, and video examples, including benign cases. Reports calculate rule-level precision, recall, false-positive count/rate, applicable-rule retrieval coverage, mean/median/p95 latency, and media extraction readiness by content type. The old synthetic fixtures are not counted. No human-reviewed cases are currently in the local dataset, so quality metrics remain “Not measured”; sample size and limitations are displayed. |
 | Review turnaround metric | **Partially measured** | Approval timestamps are measured when persisted approval history exists. The comparison baseline is still the fixed two-day baseline described in the service, not a controlled manual experiment. |
-| Text first-feedback target `< 30s` | **Works in local benchmark** | The benchmark records scan latency and compares it with 30 seconds. |
+| Text first-feedback target `< 30s` | **Not measured against human-reviewed data** | Scan latency is measured separately in the new evaluator; no target is configured and no human-reviewed samples currently exist. |
 | Image/multimodal scanning | **Partial** | PNG/image inspection, local visual checks, and optional Tesseract OCR work; Gemini vision remains optional. |
-| Audio/video review | **Partial** | Audio/video can be scanned from supplied or locally transcribed text; video frames can be sampled and OCR'd when FFmpeg/Tesseract are available. Missing extraction remains human review. |
+| Audio/video review | **Implemented locally, extraction tools optional** | Creators can edit and confirm audio/video transcripts, see extraction/confirmation state and review gaps, and rescan. Video frame previews and findings can link to timestamps or frame numbers. Missing required extraction or transcript confirmation remains in human review and blocks submission. FFmpeg, Tesseract, and local speech recognition remain optional dependencies. |
 | CMS/Google Docs/Figma integrations | **Manual import only** | Provider-neutral text/media import adapters work, but there is no OAuth connection, webhook, or synchronization with WordPress, Webflow, HubSpot, Google Docs, or Figma. |
 | Rust/Axum service | **Not implemented** | The current backend is FastAPI/Python; the PDF planned Rust for later file handling/security. |
-| MCP server | **Not implemented** | No MCP server/tool boundary is present. Gemini is called through a Python adapter when configured. |
+| MCP server | **Limited read-only interface implemented** | Streamable HTTP exposes only `get_brand_rules`, `list_drafts`, and `get_draft_findings`. Calls use the application's bearer JWT and existing user/organization scope, enforce governance roles, audit calls and denied cross-organization lookups, and reject unauthorized roles and cross-organization requests in tests. It cannot mutate drafts, trigger scans, approve/publish, or access arbitrary data. A server-side client registry/OAuth approval flow and shared rate limiting remain deployment work. |
 | Embedding model/vector index | **Implemented with deployment setup step** | PostgreSQL/Supabase uses pgvector retrieval when rule embeddings are populated; `backend.backfill_embeddings` performs the initial population. Lexical retrieval remains the safe fallback. |
 | OCR | **Implemented locally** | Tesseract OCR is used when installed; unavailable OCR is reported and does not produce a covered result. |
 | TLS/encryption at rest/retention controls | **Not implemented for production** | Local HTTP and SQLite are used. Optional PII redaction exists before model calls, but production transport, key management, encryption-at-rest, and configurable retention are not delivered. |
@@ -117,9 +118,12 @@ not connect to a real Figma, CMS, Google Docs, Webflow, or HubSpot account.
 
 ## Bottom line
 
-For a local MVP demonstration, the core requirement is satisfied: a creator can submit
-brand-violating text, receive grounded rule-linked feedback, apply fixes, and obtain
-mandatory reviewer approval with an audit trail. The application should not yet be
-described as having the complete architecture in the PDF because the production
-integration, vector-RAG, OCR/audio/video, Rust/MCP, enterprise security, multilingual,
-continuous-learning, and independently validated evaluation portions remain incomplete.
+For a local MVP demonstration, creators can submit media with reviewed transcripts,
+review timestamp/frame evidence, and keep incomplete scans in human review; reviewers
+can build a labelled dataset and inspect measured quality; and approved users can
+retrieve organization-scoped rules and saved findings through read-only MCP tools.
+These workflows are implemented, but media extraction depends on optional local tools,
+there are not yet human-labelled examples to support quality claims, and MCP does not
+yet have organization-managed client registration. Production integrations,
+enterprise security, multilingual support, continuous learning, and other PDF
+architecture items remain incomplete.

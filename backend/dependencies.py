@@ -9,15 +9,20 @@ bearer_scheme = HTTPBearer(auto_error=False)
 def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
 ):
-    user_id = None
-    if credentials:
-        try:
-            payload = jwt.decode(credentials.credentials, settings.SECRET_KEY, algorithms=["HS256"])
-            user_id = payload.get("sub")
-        except JWTError as exc:
-            raise HTTPException(status_code=401, detail="Invalid or expired authentication token") from exc
-    if not user_id:
+    if not credentials:
         raise HTTPException(status_code=401, detail="Authentication required")
+
+    return get_user_from_access_token(credentials.credentials)
+
+
+def get_user_from_access_token(token: str):
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
+        user_id = payload.get("sub")
+    except JWTError as exc:
+        raise HTTPException(status_code=401, detail="Invalid or expired authentication token") from exc
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid or expired authentication token")
 
     with get_db() as conn:
         cursor = conn.cursor()
@@ -25,7 +30,7 @@ def get_current_user(
         user = cursor.fetchone()
     if not user:
         raise HTTPException(status_code=401, detail="User not authenticated")
-    return user
+    return dict(user)
 
 def require_role(*roles: str):
     def role_checker(user: dict = Depends(get_current_user)):

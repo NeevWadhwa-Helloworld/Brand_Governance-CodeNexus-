@@ -149,6 +149,10 @@ class DraftUpdate(BaseModel):
     title: Optional[str] = None
     content_text: Optional[str] = None
 
+class TranscriptUpdate(BaseModel):
+    transcript: str = Field(max_length=50000)
+    confirmed: bool = False
+
 class DraftDetail(BaseModel):
     id: str
     org_id: str
@@ -210,11 +214,22 @@ class EvaluationMetricTarget(BaseModel):
 class BenchmarkReport(BaseModel):
     run_timestamp: str
     total_test_samples: int
+    dataset_version: str
+    dataset_provenance: str
+    dataset_limitations: List[str]
+    metrics_by_content_type: Dict[str, Any]
     flag_precision: Optional[float]
-    flag_precision_target: float
+    flag_precision_target: Optional[float]
+    flag_recall: Optional[float]
+    false_positive_count: int
+    false_positive_rate: Optional[float]
+    rule_retrieval_coverage: Optional[float]
+    true_positive_count: int
+    false_negative_count: int
+    true_negative_count: int
     avg_approval_turnaround_seconds: Optional[float]
     labelled_sample_pass_rate: Optional[float]
-    avg_benchmark_scan_seconds: float
+    avg_benchmark_scan_seconds: Optional[float]
     avg_benchmark_scan_target_seconds: Optional[float]
     metrics_summary: List[EvaluationMetricTarget]
     sample_results: List[Dict[str, Any]]

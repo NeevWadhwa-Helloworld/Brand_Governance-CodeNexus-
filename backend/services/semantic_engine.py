@@ -5,6 +5,7 @@ from typing import List, Dict, Any, Optional
 from backend.config import settings
 from backend.services.rag_service import RAGService
 from backend.services.pii_redactor import PIIRedactor
+from backend.services.model_adapter import get_model_adapter
 from backend.schemas import SemanticFlagItem, SemanticScanOutput
 
 logger = logging.getLogger(__name__)
@@ -29,17 +30,19 @@ class SemanticEngine:
         # 2. Redact personal data if enabled
         clean_text, pii_mapping = PIIRedactor.redact(text) if text else ("", {})
 
-        # 3. Call AI Model (Gemini if key provided, else intelligent local semantic engine)
+        # 3. Call AI Model (Gemini or Local/Private Model via ModelAdapter boundary)
         raw_flags = []
         has_api_key = bool(settings.GEMINI_API_KEY and settings.GEMINI_API_KEY != "your_gemini_api_key_here")
+        has_local_model = settings.MODEL_PROVIDER in ("local", "private")
 
         if clean_text:
-            if has_api_key:
+            if has_api_key or has_local_model:
                 try:
-                    raw_flags.extend(cls._call_gemini_rag(clean_text, retrieved_rules))
+                    adapter = get_model_adapter()
+                    raw_flags.extend(adapter.scan_text(clean_text, retrieved_rules))
                 except Exception:
-                    logger.exception("Gemini text scan failed; using local semantic checks")
-            # Keep high-confidence, policy-specific checks active even when Gemini
+                    logger.exception("AI model scan failed; falling back to local semantic checks")
+            # Keep high-confidence, policy-specific checks active even when model
             # returns an empty list; a successful API call is not proof of compliance.
             raw_flags.extend(cls._local_semantic_rules_eval(clean_text, retrieved_rules))
 
@@ -47,9 +50,10 @@ class SemanticEngine:
         if image_path:
             if has_api_key:
                 try:
-                    raw_flags.extend(cls._call_gemini_vision(image_path, retrieved_rules))
+                    adapter = get_model_adapter()
+                    raw_flags.extend(adapter.scan_vision(image_path, retrieved_rules))
                 except Exception:
-                    logger.exception("Gemini visual scan failed; using local visual checks")
+                    logger.exception("Model visual scan failed; using local visual checks")
                     raw_flags.extend(cls._local_visual_semantic_eval(image_path, retrieved_rules))
             else:
                 raw_flags.extend(cls._local_visual_semantic_eval(image_path, retrieved_rules))

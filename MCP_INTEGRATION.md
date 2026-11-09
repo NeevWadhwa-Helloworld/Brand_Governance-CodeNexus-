@@ -1,0 +1,53 @@
+# MCP integration
+
+Inkloom exposes a limited, read-only MCP server over Streamable HTTP:
+
+```text
+http://localhost:8000/mcp
+```
+
+For a deployed server, use its HTTPS origin and append `/mcp`. A compatible MCP
+client must send an Inkloom application access token:
+
+```http
+Authorization: Bearer $INKLOOM_ACCESS_TOKEN
+```
+
+The token represents the signed-in user and carries their organization and
+application role. Users should configure only MCP clients they trust, retrieve
+tokens through Inkloom's authentication flow, and store them in the client's
+secret storage. Do not put tokens in prompts, source control, or plain-text
+configuration. The server currently uses user bearer tokens; it does not yet
+provide OAuth client registration or a server-side client allowlist. Do not
+expose a local endpoint to untrusted networks.
+
+## Read-only tools
+
+| Tool | Purpose | Access |
+|---|---|---|
+| `get_brand_rules` | Retrieve relevant active brand rules. | Creator, reviewer, admin |
+| `list_drafts` | List limited draft metadata; optionally filter by status and limit. | Creator, reviewer, admin |
+| `get_draft_findings` | Retrieve the latest saved scan findings and policy-coverage state for an organization-scoped draft. | Creator, reviewer, admin |
+
+These tools do not return draft body text, create or change content, trigger a
+scan, approve content, publish content, or access arbitrary database/filesystem
+paths. Unknown or out-of-organization draft IDs return the same not-found error.
+Successful calls and denied cross-organization lookups are audited. Request
+bodies, tool inputs, and per-user request frequency are bounded. The rate limiter
+is process-local; multi-instance deployments need an edge/shared rate limit.
+
+Use the web application to create and scan drafts. Then use `list_drafts` to
+identify a draft and `get_draft_findings` to retrieve its latest saved scan.
+
+## Client configuration
+
+Configure the client with:
+
+- Transport: Streamable HTTP
+- Local endpoint: `http://localhost:8000/mcp`
+- Deployed endpoint: `https://<backend-host>/mcp`
+- Authorization header: `Bearer $INKLOOM_ACCESS_TOKEN`
+
+Hosted clients cannot reach a user's `localhost`; they require a securely
+deployed HTTPS endpoint. The web frontend currently has no MCP connection
+management screen.

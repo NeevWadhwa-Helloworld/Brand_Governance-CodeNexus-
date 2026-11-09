@@ -4,11 +4,16 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict, List
 
+from backend.config import settings
+
+
 class MediaAnalyzer:
     """Extracts media evidence through installed local tools and configured providers."""
 
     @classmethod
-    def analyze(cls, path: str, media_type: str) -> Dict[str, Any]:
+    def analyze(
+        cls, path: str, media_type: str, artifact_dir: Path | None = None
+    ) -> Dict[str, Any]:
         file_path = Path(path)
         if not file_path.is_file():
             raise FileNotFoundError("Media file was not found")
@@ -31,7 +36,7 @@ class MediaAnalyzer:
         transcript = cls._transcribe(file_path)
         frames: List[Dict[str, Any]] = []
         if media_type == "video":
-            frames = cls._analyze_video_frames(file_path)
+            frames = cls._analyze_video_frames(file_path, artifact_dir)
 
         ocr_text = "\n".join(frame["text"] for frame in frames if frame.get("text")).strip()
         missing = []
@@ -49,6 +54,8 @@ class MediaAnalyzer:
             "extraction_status": "complete" if not missing else "needs_review",
             "transcript": transcript["text"],
             "transcript_segments": transcript.get("segments", []),
+            "transcript_source": "automatic" if transcript["available"] else "none",
+            "transcript_confirmed": False,
             "ocr_text": ocr_text,
             "findings": frames,
             "capabilities": {
@@ -88,12 +95,15 @@ class MediaAnalyzer:
         }
 
     @classmethod
-    def _analyze_video_frames(cls, file_path: Path) -> List[Dict[str, Any]]:
+    def _analyze_video_frames(
+        cls, file_path: Path, artifact_dir: Path | None = None
+    ) -> List[Dict[str, Any]]:
         ffmpeg = shutil.which("ffmpeg")
         if not ffmpeg:
             return []
         with tempfile.TemporaryDirectory(prefix="brand-frames-") as temp_dir:
             output_pattern = str(Path(temp_dir) / "frame-%03d.png")
+            sampling_interval_seconds = 10
             command = [
                 ffmpeg, "-hide_banner", "-loglevel", "error", "-i", str(file_path),
                 "-vf", "fps=1/10", "-frames:v", "12", output_pattern,
@@ -105,6 +115,7 @@ class MediaAnalyzer:
 
             frames = sorted(Path(temp_dir).glob("frame-*.png"))
             if not frames:
+                sampling_interval_seconds = 1
                 fallback_command = [
                     ffmpeg, "-hide_banner", "-loglevel", "error", "-i", str(file_path),
                     "-vf", "fps=1", "-frames:v", "12", output_pattern,
@@ -118,13 +129,24 @@ class MediaAnalyzer:
                 frames = sorted(Path(temp_dir).glob("frame-*.png"))
 
             results = []
+            if artifact_dir:
+                artifact_dir.mkdir(parents=True, exist_ok=True)
             for index, frame in enumerate(frames):
                 ocr = cls._ocr_image(frame)
+                frame_name = f"frame-{index + 1:03d}.png"
+                frame_url = None
+                if artifact_dir:
+                    destination = artifact_dir / frame_name
+                    shutil.copyfile(frame, destination)
+                    frame_url = (
+                        f"/static/{destination.relative_to(settings.STATIC_ROOT).as_posix()}"
+                    )
                 results.append({
                     "frame_number": index + 1,
-                    "timestamp_seconds": index * 10,
+                    "timestamp_seconds": index * sampling_interval_seconds,
                     "text": ocr["text"],
                     "ocr_available": ocr["available"],
+                    "image_url": frame_url,
                 })
             return results
 

@@ -1,5 +1,5 @@
 import uvicorn
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,13 +10,16 @@ from backend.config import settings
 from backend.database import init_db
 from backend.seed_data import seed_database
 from backend.routers import auth, guidelines, drafts, flags, analytics, evaluation, audit, integrations
+from backend.services.mcp_server import mcp_http_app, server as mcp_server
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: Initialize schema and seed data
     init_db()
     await seed_database()
-    yield
+    async with AsyncExitStack() as stack:
+        await stack.enter_async_context(mcp_server.session_manager.run())
+        yield
 
 app = FastAPI(
     title="Intelligent Brand-Governance Platform",
@@ -78,22 +81,40 @@ def health_check():
 
 @app.get("/api/system-info")
 def system_info():
+    from backend.services.model_adapter import get_model_adapter
     database_name = "postgresql" if settings.is_postgres else str(settings.DB_PATH)
+    adapter = get_model_adapter()
+    adapter_meta = adapter.get_provider_metadata()
     return {
         "environment": settings.ENVIRONMENT,
         "database": database_name,
         "ai_engine": {
-            "provider": "Gemini Multimodal / Grounded RAG Adapter",
-            "model": settings.GEMINI_MODEL,
+            "provider": adapter_meta["provider"],
+            "model": adapter_meta["model"],
+            "hosting": adapter_meta["hosting"],
+            "is_local": adapter_meta["is_local"],
             "has_api_key": bool(settings.GEMINI_API_KEY and settings.GEMINI_API_KEY != "your_gemini_api_key_here"),
             "strict_grounding": settings.STRICT_GROUNDING_REQUIRED,
-            "min_confidence": settings.MIN_CONFIDENCE_THRESHOLD
+            "min_confidence": settings.MIN_CONFIDENCE_THRESHOLD,
+            "data_boundary": adapter_meta.get("data_boundary", {})
+        },
+        "mcp_server": {
+            "enabled": True,
+            "endpoint": "/mcp",
+            "protocol": "Model Context Protocol (Streamable HTTP)",
+            "rate_limit_per_minute": settings.MCP_REQUESTS_PER_MINUTE,
+            "tools": ["get_brand_rules", "list_drafts", "get_draft_findings"],
+            "mode": "read_only"
         },
         "security": {
             "pii_redaction_enabled": settings.ENABLE_PII_REDACTION,
             "audit_hashing_enabled": True
         }
     }
+
+# Keep MCP behind the application's trusted-host and CORS middleware while
+# allowing its own Streamable HTTP endpoint to handle /mcp.
+app.mount("/", mcp_http_app, name="mcp")
 
 # Wrap the complete ASGI app so CORS headers are also applied to unhandled 500s.
 app = CORSMiddleware(

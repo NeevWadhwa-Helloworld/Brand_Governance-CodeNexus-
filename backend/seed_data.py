@@ -1,13 +1,159 @@
 import uuid
 import asyncio
 import hashlib
-from datetime import datetime
+import json
+from datetime import datetime, timezone
 from backend.database import get_db, init_db
 from backend.services.scanner import Scanner
 
 def _hash_password(password: str) -> str:
     from backend.config import settings
     return hashlib.pbkdf2_hmac("sha256", password.encode(), settings.SECRET_KEY.encode(), 120_000).hex()
+
+def seed_evaluation_samples(conn, org_id: str = "org_inkloom", version_id: str = "gv_v3_2"):
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) as cnt FROM evaluation_samples WHERE org_id = ?", (org_id,))
+    if cursor.fetchone()["cnt"] > 0:
+        return
+
+    now = datetime.now(timezone.utc).isoformat()
+    reviewer_id = "user_alex"  # Neev Wadhwa, Reviewer
+
+    samples = [
+        (
+            "eval_sample_01",
+            org_id,
+            version_id,
+            reviewer_id,
+            "Product Launch Blog Post Copy - Outdated Users & Banned Terms",
+            "text",
+            "We're proud to serve over 10,000 active users with our cheap pricing and rockstar team crushing our competitors every single day.",
+            None,
+            json.dumps(["FACT-01", "TERM-01", "TERM-02", "VOICE-01"]),
+            json.dumps(["FACT-01", "TERM-01", "TERM-02", "VOICE-01", "VOICE-02"]),
+            "Outdated user metric (FACT-01), banned words 'cheap' (TERM-01) and 'rockstar' (TERM-02), and boastful tone (VOICE-01).",
+            now,
+            now,
+        ),
+        (
+            "eval_sample_02",
+            org_id,
+            version_id,
+            reviewer_id,
+            "Marketing Hero Banner Copy - Unsubstantiated Superlatives & Guarantees",
+            "text",
+            "The #1 solution on the market! Inkloom delivers guaranteed results with instantaneous zero-effort perfection.",
+            None,
+            json.dumps(["CLAIM-01", "TERM-03", "CLAIM-02"]),
+            json.dumps(["CLAIM-01", "CLAIM-02", "TERM-03", "VOICE-01"]),
+            "Unsubstantiated superlative claim (CLAIM-01), absolute guarantee (TERM-03), and automated perfection co-pilot breach (CLAIM-02).",
+            now,
+            now,
+        ),
+        (
+            "eval_sample_03",
+            org_id,
+            version_id,
+            reviewer_id,
+            "Enterprise Trust Center Case Study - Fully Compliant",
+            "text",
+            "Inkloom AI empowers over 50,000+ active users worldwide with enterprise brand consistency, backing teams with a 99.9% uptime SLA and high-value collaboration.",
+            None,
+            json.dumps([]),
+            json.dumps(["FACT-01", "FACT-03", "TERM-01", "VOICE-01"]),
+            "Fully compliant enterprise copy. Correct 50,000+ active users fact, approved 99.9% SLA metric, and empowering collaborative tone.",
+            now,
+            now,
+        ),
+        (
+            "eval_sample_04",
+            org_id,
+            version_id,
+            reviewer_id,
+            "Product Feature Update Note - Jargon & Unapproved Hex Accent",
+            "text",
+            "We leverage cross-functional synergies to create a paradigm shift in holistic ideation, styled in custom accent #FF0055.",
+            None,
+            json.dumps(["VOICE-02", "COLOR-01"]),
+            json.dumps(["VOICE-02", "COLOR-01", "VOICE-01"]),
+            "Corporate buzzword jargon ('synergies', 'paradigm shift') violates VOICE-02; unapproved color #FF0055 violates COLOR-01.",
+            now,
+            now,
+        ),
+        (
+            "eval_sample_05",
+            org_id,
+            version_id,
+            reviewer_id,
+            "Executive Podcast Interview Transcript - Outdated Financing & SLA",
+            "audio",
+            "In our initial seed round we raised $2M to build the product. We now promise 100% flawless uptime to all our enterprise clients without fail.",
+            "podcast_interview.mp3",
+            json.dumps(["FACT-02", "FACT-03"]),
+            json.dumps(["FACT-02", "FACT-03", "CLAIM-02"]),
+            "Spoken transcript cites outdated $2M seed round instead of $12M Series A (FACT-02); promises 100% uptime instead of 99.9% SLA (FACT-03).",
+            now,
+            now,
+        ),
+        (
+            "eval_sample_06",
+            org_id,
+            version_id,
+            reviewer_id,
+            "Brand Consistency Webinar Script - Compliant Audio Transcript",
+            "audio",
+            "Welcome to today's webinar. Founded in Bengaluru, India, Inkloom AI supports marketing organizations in aligning creative output with brand policies through clear, assistive recommendations.",
+            "webinar_intro.mp3",
+            json.dumps([]),
+            json.dumps(["FACT-04", "VOICE-01", "VOICE-04"]),
+            "Accurate Bengaluru HQ mention (FACT-04), helpful empathetic tone (VOICE-04), and no policy violations.",
+            now,
+            now,
+        ),
+        (
+            "eval_sample_07",
+            org_id,
+            version_id,
+            reviewer_id,
+            "Short-form Social Video Reel Script - Slang & Superlatives",
+            "video",
+            "Need a marketing ninja to fix your brand? Inkloom AI is the undisputed leader in creative automation with guaranteed results.",
+            "social_reel.mp4",
+            json.dumps(["TERM-02", "CLAIM-01", "TERM-03"]),
+            json.dumps(["TERM-02", "CLAIM-01", "TERM-03", "VOICE-01"]),
+            "Slang title 'ninja' (TERM-02), superlative 'undisputed leader' (CLAIM-01), and absolute guarantee (TERM-03).",
+            now,
+            now,
+        ),
+        (
+            "eval_sample_08",
+            org_id,
+            version_id,
+            reviewer_id,
+            "Studio Walkthrough Demo Video - Compliant Captions",
+            "video",
+            "In this walkthrough, we demonstrate how Inkloom serves over 50,000+ active users with cost-effective brand governance and human-in-the-loop approvals.",
+            "demo_walkthrough.mp4",
+            json.dumps([]),
+            json.dumps(["FACT-01", "TERM-01", "CLAIM-02", "VOICE-01"]),
+            "Approved 50,000+ metric (FACT-01), preferred terminology 'cost-effective' (TERM-01), and human-in-the-loop positioning (CLAIM-02).",
+            now,
+            now,
+        ),
+    ]
+
+    for item in samples:
+        cursor.execute(
+            """
+            INSERT INTO evaluation_samples (
+                id, org_id, guideline_version_id, reviewer_id, title,
+                content_type, content_text, media_filename, expected_rules,
+                applicable_rules, label_notes, reviewed_at, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            item,
+        )
+    print(f"[Seed] Successfully seeded {len(samples)} human-reviewed evaluation samples.")
 
 async def seed_database():
     init_db()
@@ -17,7 +163,7 @@ async def seed_database():
         cursor.execute("SELECT id FROM organizations WHERE slug = 'inkloom'")
         existing_org = cursor.fetchone()
         if existing_org:
-            now = datetime.utcnow().isoformat() + "Z"
+            now = datetime.now(timezone.utc).isoformat()
             password_hash = _hash_password("inkloom-demo")
             migrations = [
                 ("user_riya", "paridhi@inkloom.ai", "Paridhi Agarwal", "creator", "https://api.dicebear.com/7.x/avataaars/svg?seed=Paridhi"),
@@ -40,6 +186,7 @@ async def seed_database():
                     now, password_hash
                 ))
             print("[Seed] Existing database identity migration completed.")
+            seed_evaluation_samples(conn, existing_org["id"], "gv_v3_2")
             return
 
     with get_db() as conn:
@@ -53,7 +200,7 @@ async def seed_database():
 
         print("[Seed] Populating Inkloom AI Brand Knowledge Base & Seed Data...")
 
-        now = datetime.utcnow().isoformat() + "Z"
+        now = datetime.now(timezone.utc).isoformat()
         org_id = "org_inkloom"
         cursor.execute("""
             INSERT INTO organizations (id, name, slug, created_at)
@@ -184,6 +331,8 @@ async def seed_database():
             INSERT INTO drafts (id, org_id, author_id, title, content_type, current_version, status, content_ref, created_at, updated_at)
             VALUES (?, ?, ?, ?, 'image', 1, 'Submitted', ?, ?, ?)
         """, (draft3_id, org_id, "user_riya", "Q4 Social Banner Creative (Visual Asset)", banner_rel_path, now, now))
+
+        seed_evaluation_samples(conn, org_id, version_id)
 
     # Perform initial automated scans to populate live flags & audit logs
     print("[Seed] Running initial two-layer scan on sample drafts...")
