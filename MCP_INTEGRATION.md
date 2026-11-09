@@ -41,11 +41,12 @@ identify a draft and `get_draft_findings` to retrieve its latest saved scan.
 
 ## Client configuration
 
-Configure the client with:
+For the deployed Inkloom app, a compatible agent connects directly to the
+backend—not the Vercel website:
 
 - Transport: Streamable HTTP
 - Local endpoint: `http://localhost:8000/mcp`
-- Deployed endpoint: `https://<backend-host>/mcp`
+- Deployed endpoint: `https://brand-governance-codenexus.onrender.com/mcp`
 - Authorization header: `Bearer $INKLOOM_ACCESS_TOKEN`
 
 Hosted clients cannot reach a user's `localhost`; they require a securely
@@ -58,3 +59,21 @@ the frontend and backend have different origins.
 The **Copy VS Code MCP JSON** button produces VS Code's Streamable HTTP
 configuration and prompts for the Inkloom access token instead of copying the
 token itself. The token must belong to a signed-in Inkloom user.
+
+### Connect from VS Code
+
+1. Sign in to Inkloom with the account whose organization the agent should use.
+2. In Inkloom's **MCP Server** tab, click **Copy VS Code MCP JSON**.
+3. In VS Code, open the MCP configuration file using the Command Palette's
+   **MCP: Open User Configuration** command and paste the copied JSON.
+4. Save the file. When VS Code asks for the Inkloom access token, enter a valid
+   token for the signed-in user. Keep it private; it gives the agent that
+   user's read-only access to organization-scoped rules, draft metadata, and
+   saved findings.
+5. Start or restart the Inkloom MCP server in VS Code. In Agent mode, the
+   Inkloom tools should then be available to the assistant.
+
+The current app authenticates MCP clients with Inkloom user access tokens; it
+does not yet offer OAuth-based agent sign-in or administrator-managed client
+registration. Only connect agents you trust, and do not paste the token into
+prompts, source control, or shared configuration.

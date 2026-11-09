@@ -78,7 +78,7 @@ async function sendMcpRequest(endpoint, token, payload, { sessionId, protocolVer
 export default function MCPHub({ currentUser, showToast }) {
   const [selectedTool, setSelectedTool] = useState('get_brand_rules');
   const [queryInput, setQueryInput] = useState('tone voice forbidden terminology');
-  const [draftIdInput, setDraftIdInput] = useState('draft_sample_launch');
+  const [draftIdInput, setDraftIdInput] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [limitInput, setLimitInput] = useState(5);
   const [executing, setExecuting] = useState(false);
@@ -135,6 +135,7 @@ export default function MCPHub({ currentUser, showToast }) {
     let sessionId;
     let protocolVersion;
     const requestId = Date.now();
+    const draftId = draftIdInput.trim();
     const callPayload = {
       jsonrpc: '2.0',
       id: requestId + 2,
@@ -145,13 +146,16 @@ export default function MCPHub({ currentUser, showToast }) {
           ? { query: queryInput, limit: Number(limitInput) || 5 }
           : selectedTool === 'list_drafts'
           ? { status: statusFilter || undefined, limit: Number(limitInput) || 10 }
-          : { draft_id: draftIdInput }
+          : { draft_id: draftId }
       }
     };
 
     try {
       if (!token) {
         throw new Error('Your sign-in has expired. Sign in again before calling an MCP tool.');
+      }
+      if (selectedTool === 'get_draft_findings' && !draftId) {
+        throw new Error('First run list_drafts and use a draft_id from its results. Draft IDs are limited to your organization.');
       }
 
       const { response: initializeResponse, data: initializeData } = await sendMcpRequest(
@@ -470,9 +474,12 @@ export default function MCPHub({ currentUser, showToast }) {
                     type="text"
                     value={draftIdInput}
                     onChange={e => setDraftIdInput(e.target.value)}
-                    placeholder="e.g. draft_sample_launch"
+                    placeholder="Paste a draft_id from list_drafts"
                     className="w-full rounded-xl border border-[#1F2A4A] bg-[#0E1428] px-3.5 py-2 text-xs text-[#E8ECF8] focus:border-[#60A5FA] focus:outline-none font-mono"
                   />
+                  <p className="mt-1 text-[11px] text-[#7C88AB]">
+                    Run <span className="font-mono">list_drafts</span> first, then paste a draft ID from its results. Only drafts in your organization are available.
+                  </p>
                 </div>
               )}
 
