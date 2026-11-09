@@ -85,6 +85,8 @@ export default function MCPHub({ currentUser, showToast }) {
   const [testResponse, setTestResponse] = useState(null);
   const [testError, setTestError] = useState(null);
   const [copiedConfig, setCopiedConfig] = useState(false);
+  const [copiedToken, setCopiedToken] = useState(false);
+  const [tokenCopyError, setTokenCopyError] = useState(null);
 
   const mcpEndpoint = `${configuredApiOrigin}/mcp`;
 
@@ -249,6 +251,30 @@ export default function MCPHub({ currentUser, showToast }) {
     if (showToast) showToast('MCP client config copied to clipboard', 'info');
   }
 
+  async function copyAccessToken() {
+    setCopiedToken(false);
+    setTokenCopyError(null);
+    const token = localStorage.getItem('access_token');
+
+    if (!token) {
+      const message = 'No Inkloom access token found. Sign out and sign back in, then try again.';
+      setTokenCopyError(message);
+      if (showToast) showToast(message, 'error');
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(token);
+      setCopiedToken(true);
+      setTimeout(() => setCopiedToken(false), 2500);
+      if (showToast) showToast("Access token copied. Paste it into VS Code's secure token prompt.", 'success');
+    } catch {
+      const message = 'Could not copy the token. Check browser clipboard permissions and try again.';
+      setTokenCopyError(message);
+      if (showToast) showToast(message, 'error');
+    }
+  }
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
       {/* Header */}
@@ -270,15 +296,33 @@ export default function MCPHub({ currentUser, showToast }) {
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={copyConfig}
-          className="flex items-center space-x-2 rounded-xl bg-[#111830] hover:bg-[#172040] border border-[#1F2A4A] px-3.5 py-2 text-xs font-semibold text-[#E8ECF8] transition-all"
-        >
-          {copiedConfig ? <Check className="w-4 h-4 text-[#34D399]" /> : <Copy className="w-4 h-4 text-[#60A5FA]" />}
-          <span>{copiedConfig ? 'Config Copied' : 'Copy VS Code MCP JSON'}</span>
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={copyAccessToken}
+            className="flex items-center space-x-2 rounded-xl bg-[#111830] hover:bg-[#172040] border border-[#1F2A4A] px-3.5 py-2 text-xs font-semibold text-[#E8ECF8] transition-all"
+          >
+            {copiedToken ? <Check className="w-4 h-4 text-[#34D399]" /> : <Key className="w-4 h-4 text-[#60A5FA]" />}
+            <span>{copiedToken ? 'Token Copied' : 'Copy Access Token'}</span>
+          </button>
+          <button
+            type="button"
+            onClick={copyConfig}
+            className="flex items-center space-x-2 rounded-xl bg-[#111830] hover:bg-[#172040] border border-[#1F2A4A] px-3.5 py-2 text-xs font-semibold text-[#E8ECF8] transition-all"
+          >
+            {copiedConfig ? <Check className="w-4 h-4 text-[#34D399]" /> : <Copy className="w-4 h-4 text-[#60A5FA]" />}
+            <span>{copiedConfig ? 'Config Copied' : 'Copy VS Code MCP JSON'}</span>
+          </button>
+        </div>
       </div>
+      {tokenCopyError && (
+        <div role="alert" className="rounded-xl border border-[#F87171]/30 bg-[#F87171]/10 p-3 text-xs text-[#F87171]">
+          {tokenCopyError}
+        </div>
+      )}
+      <p className="text-[11px] text-[#7C88AB]">
+        Copy the token only when VS Code prompts for it. It grants read-only access to your Inkloom organization; do not share it.
+      </p>
 
       {/* Security Guarantees Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

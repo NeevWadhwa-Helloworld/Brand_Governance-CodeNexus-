@@ -57,8 +57,10 @@ handshake before calling a tool. `MCP-Session-Id` must be exposed by CORS when
 the frontend and backend have different origins.
 
 The **Copy VS Code MCP JSON** button produces VS Code's Streamable HTTP
-configuration and prompts for the Inkloom access token instead of copying the
-token itself. The token must belong to a signed-in Inkloom user.
+configuration with a secure token prompt. The **Copy Access Token** button
+copies the current signed-in user's token directly from the browser without
+displaying it in the page. Use it only when VS Code prompts for the token, and
+do not share it.
 
 ### Connect from VS Code
 
@@ -66,10 +68,10 @@ token itself. The token must belong to a signed-in Inkloom user.
 2. In Inkloom's **MCP Server** tab, click **Copy VS Code MCP JSON**.
 3. In VS Code, open the MCP configuration file using the Command Palette's
    **MCP: Open User Configuration** command and paste the copied JSON.
-4. Save the file. When VS Code asks for the Inkloom access token, enter a valid
-   token for the signed-in user. Keep it private; it gives the agent that
-   user's read-only access to organization-scoped rules, draft metadata, and
-   saved findings.
+4. Save the file. When VS Code asks for an Inkloom access token, return to
+   Inkloom, click **Copy Access Token**, and paste it into VS Code's prompt.
+   Keep it private; it gives the agent that user's read-only access to
+   organization-scoped rules, draft metadata, and saved findings.
 5. Start or restart the Inkloom MCP server in VS Code. In Agent mode, the
    Inkloom tools should then be available to the assistant.
 
