@@ -133,7 +133,11 @@ export default function App() {
       setActiveTab(allowed[0]);
       refreshPendingCount();
     } catch (e) {
-      setAuthError(e.message);
+      if (e.message?.includes('Failed to fetch') || e.name === 'TypeError') {
+        setAuthError('The backend server was waking up or deploying on Render free tier. Please wait ~15-20 seconds and click Sign In again.');
+      } else {
+        setAuthError(e.message || 'Authentication failed');
+      }
     } finally {
       setAuthLoading(false);
     }

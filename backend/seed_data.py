@@ -169,22 +169,21 @@ async def seed_database():
                 ("user_riya", "paridhi@inkloom.ai", "Paridhi Agarwal", "creator", "https://api.dicebear.com/7.x/avataaars/svg?seed=Paridhi"),
                 ("user_alex", "neev@inkloom.ai", "Neev Wadhwa", "reviewer", "https://api.dicebear.com/7.x/avataaars/svg?seed=Neev"),
                 ("user_chhavi", "chhavi@inkloom.ai", "Chhavi Rani", "admin", "https://api.dicebear.com/7.x/avataaars/svg?seed=Chhavi"),
+                ("user_prateek", "prateek@inkloom.ai", "Prateek Singh", "creator", "https://api.dicebear.com/7.x/avataaars/svg?seed=Prateek"),
             ]
             for user_id, email, name, role, avatar in migrations:
-                cursor.execute("""
-                    UPDATE users SET email = ?, name = ?, role = ?, avatar = ?, password_hash = ?
-                    WHERE id = ?
-                """, (email, name, role, avatar, password_hash, user_id))
-            cursor.execute("SELECT 1 FROM users WHERE id = 'user_prateek'")
-            if not cursor.fetchone():
-                cursor.execute("""
-                    INSERT INTO users (id, org_id, email, name, role, avatar, created_at, password_hash)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    "user_prateek", existing_org["id"], "prateek@inkloom.ai", "Prateek Singh",
-                    "creator", "https://api.dicebear.com/7.x/avataaars/svg?seed=Prateek",
-                    now, password_hash
-                ))
+                cursor.execute("SELECT id FROM users WHERE id = ? OR email = ?", (user_id, email))
+                existing_user = cursor.fetchone()
+                if existing_user:
+                    cursor.execute("""
+                        UPDATE users SET id = ?, email = ?, name = ?, role = ?, avatar = ?, password_hash = ?
+                        WHERE id = ? OR email = ?
+                    """, (user_id, email, name, role, avatar, password_hash, user_id, email))
+                else:
+                    cursor.execute("""
+                        INSERT INTO users (id, org_id, email, name, role, avatar, created_at, password_hash)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (user_id, existing_org["id"], email, name, role, avatar, now, password_hash))
             print("[Seed] Existing database identity migration completed.")
             seed_evaluation_samples(conn, existing_org["id"], "gv_v3_2")
             return
