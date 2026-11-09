@@ -3,6 +3,77 @@ import {
   Server, Shield, Terminal, Key, Check, Copy, Play, Loader2,
   FileText, BookOpen, AlertCircle, RefreshCw, Lock
 } from 'lucide-react';
+import { configuredApiOrigin } from '../api';
+
+const MCP_PROTOCOL_VERSION = '2025-11-25';
+
+function parseMcpResponseBody(body, contentType, requestId) {
+  if (contentType.includes('text/event-stream')) {
+    const messages = body
+      .split(/\r?\n\r?\n/)
+      .map(event => event.split(/\r?\n/)
+        .filter(line => line.startsWith('data:'))
+        .map(line => line.slice(5).trimStart())
+        .join('\n'))
+      .filter(Boolean)
+      .map(data => {
+        try {
+          return JSON.parse(data);
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean);
+
+    return messages.find(message => requestId === undefined || message.id === requestId) || null;
+  }
+
+  if (!body) return null;
+  try {
+    return JSON.parse(body);
+  } catch {
+    return null;
+  }
+}
+
+async function sendMcpRequest(endpoint, token, payload, { sessionId, protocolVersion } = {}) {
+  const headers = {
+    Accept: 'application/json, text/event-stream',
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${token}`
+  };
+  if (sessionId) headers['Mcp-Session-Id'] = sessionId;
+  if (protocolVersion) headers['Mcp-Protocol-Version'] = protocolVersion;
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(payload)
+  });
+  const body = await response.text();
+  const data = parseMcpResponseBody(body, response.headers.get('content-type') || '', payload.id);
+
+  if (!response.ok) {
+    let detail = data?.detail || data?.error?.message;
+    if (!detail && body && !data) detail = body.slice(0, 300);
+    throw new Error(detail || `MCP request failed with HTTP ${response.status}`);
+  }
+  if (body && !data) {
+    throw new Error('The MCP server returned an unreadable response.');
+  }
+  if (data?.error) {
+    throw new Error(data.error.message || 'The MCP server rejected the request.');
+  }
+  if (data?.result?.isError) {
+    const detail = data.result.content
+      ?.filter(item => item.type === 'text')
+      .map(item => item.text)
+      .join('\n');
+    throw new Error(detail || 'The MCP tool could not complete the request.');
+  }
+
+  return { response, data };
+}
 
 export default function MCPHub({ currentUser, showToast }) {
   const [selectedTool, setSelectedTool] = useState('get_brand_rules');
@@ -15,9 +86,7 @@ export default function MCPHub({ currentUser, showToast }) {
   const [testError, setTestError] = useState(null);
   const [copiedConfig, setCopiedConfig] = useState(false);
 
-  const apiOrigin = window.location.origin;
-  const mcpEndpoint = `${apiOrigin}/mcp`;
-  const token = localStorage.getItem('access_token') || 'YOUR_BEARER_JWT_TOKEN';
+  const mcpEndpoint = `${configuredApiOrigin}/mcp`;
 
   const tools = [
     {
@@ -62,9 +131,13 @@ export default function MCPHub({ currentUser, showToast }) {
     setTestError(null);
     setTestResponse(null);
 
+    const token = localStorage.getItem('access_token');
+    let sessionId;
+    let protocolVersion;
+    const requestId = Date.now();
     const callPayload = {
       jsonrpc: '2.0',
-      id: Date.now(),
+      id: requestId + 2,
       method: 'tools/call',
       params: {
         name: selectedTool,
@@ -77,19 +150,45 @@ export default function MCPHub({ currentUser, showToast }) {
     };
 
     try {
-      const res = await fetch('/mcp', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`
-        },
-        body: JSON.stringify(callPayload)
-      });
-
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data.detail || `MCP call failed with HTTP ${res.status}`);
+      if (!token) {
+        throw new Error('Your sign-in has expired. Sign in again before calling an MCP tool.');
       }
+
+      const { response: initializeResponse, data: initializeData } = await sendMcpRequest(
+        mcpEndpoint,
+        token,
+        {
+          jsonrpc: '2.0',
+          id: requestId,
+          method: 'initialize',
+          params: {
+            protocolVersion: MCP_PROTOCOL_VERSION,
+            capabilities: {},
+            clientInfo: { name: 'inkloom-web-test-bench', version: '1.0.0' }
+          }
+        }
+      );
+      sessionId = initializeResponse.headers.get('mcp-session-id');
+      protocolVersion = initializeData?.result?.protocolVersion;
+      if (!sessionId || !protocolVersion) {
+        throw new Error(
+          'The MCP server did not start a session. Check the backend URL and its MCP CORS configuration.'
+        );
+      }
+
+      await sendMcpRequest(
+        mcpEndpoint,
+        token,
+        { jsonrpc: '2.0', method: 'notifications/initialized' },
+        { sessionId, protocolVersion }
+      );
+
+      const { data } = await sendMcpRequest(
+        mcpEndpoint,
+        token,
+        callPayload,
+        { sessionId, protocolVersion }
+      );
       setTestResponse(data);
       if (showToast) showToast('MCP tool executed successfully', 'success');
     } catch (e) {
@@ -97,20 +196,46 @@ export default function MCPHub({ currentUser, showToast }) {
       setTestError(e.message || 'Failed to execute tool on MCP server');
       if (showToast) showToast(e.message, 'error');
     } finally {
+      if (token && sessionId) {
+        const headers = {
+          Authorization: `Bearer ${token}`,
+          'Mcp-Session-Id': sessionId,
+          ...(protocolVersion ? { 'Mcp-Protocol-Version': protocolVersion } : {})
+        };
+        try {
+          const closeResponse = await fetch(mcpEndpoint, { method: 'DELETE', headers });
+          if (!closeResponse.ok && closeResponse.status !== 405) {
+            console.warn(`MCP session cleanup failed with HTTP ${closeResponse.status}`);
+          }
+        } catch (error) {
+          console.warn('MCP session cleanup failed.', error);
+        }
+      }
       setExecuting(false);
     }
   }
 
+  const clientEndpoint = configuredApiOrigin
+    ? `${configuredApiOrigin}/mcp`
+    : 'http://localhost:8000/mcp';
   const clientConfig = {
-    mcpServers: {
+    servers: {
       inkloom: {
-        command: "npx",
-        args: ["-y", "@modelcontextprotocol/server-fetch", mcpEndpoint],
-        env: {
-          AUTHORIZATION: `Bearer ${token}`
+        type: 'http',
+        url: clientEndpoint,
+        headers: {
+          Authorization: 'Bearer ${input:inkloomToken}'
         }
       }
-    }
+    },
+    inputs: [
+      {
+        type: 'promptString',
+        id: 'inkloomToken',
+        description: 'Inkloom access token',
+        password: true
+      }
+    ]
   };
 
   function copyConfig() {
@@ -147,7 +272,7 @@ export default function MCPHub({ currentUser, showToast }) {
           className="flex items-center space-x-2 rounded-xl bg-[#111830] hover:bg-[#172040] border border-[#1F2A4A] px-3.5 py-2 text-xs font-semibold text-[#E8ECF8] transition-all"
         >
           {copiedConfig ? <Check className="w-4 h-4 text-[#34D399]" /> : <Copy className="w-4 h-4 text-[#60A5FA]" />}
-          <span>{copiedConfig ? 'Config Copied' : 'Copy Client JSON'}</span>
+          <span>{copiedConfig ? 'Config Copied' : 'Copy VS Code MCP JSON'}</span>
         </button>
       </div>
 

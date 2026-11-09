@@ -1,4 +1,5 @@
 from contextlib import nullcontext
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -66,6 +67,7 @@ def test_mcp_is_available_on_the_main_application(monkeypatch):
     request_headers = {
         "accept": "application/json, text/event-stream",
         "content-type": "application/json",
+        "origin": "https://brand-governance-code-nexu.vercel.app",
     }
 
     with TestClient(main.app, base_url="http://localhost") as client:
@@ -81,9 +83,42 @@ def test_mcp_is_available_on_the_main_application(monkeypatch):
             headers={**request_headers, "authorization": "Bearer test-token"},
         )
 
+        initialize_data = json.loads(
+            next(line[6:] for line in authenticated.text.splitlines() if line.startswith("data: "))
+        )
+        protocol_version = initialize_data["result"]["protocolVersion"]
+        session_id = authenticated.headers["mcp-session-id"]
+        session_headers = {
+            **authenticated.request.headers,
+            "mcp-session-id": session_id,
+            "mcp-protocol-version": protocol_version,
+        }
+        initialized = client.post(
+            "/mcp",
+            json={"jsonrpc": "2.0", "method": "notifications/initialized"},
+            headers=session_headers,
+        )
+        tools_list = client.post(
+            "/mcp",
+            json={"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+            headers=session_headers,
+        )
+        tools_list_data = json.loads(
+            next(line[6:] for line in tools_list.text.splitlines() if line.startswith("data: "))
+        )
+        client.delete("/mcp", headers=session_headers)
+
     assert unauthenticated.status_code == 401
     assert invalid_token.status_code == 401
     assert authenticated.status_code == 200
+    assert "mcp-session-id" in authenticated.headers["access-control-expose-headers"].lower()
+    assert initialized.status_code == 202
+    assert tools_list.status_code == 200
+    assert {tool["name"] for tool in tools_list_data["result"]["tools"]} == {
+        "get_brand_rules",
+        "list_drafts",
+        "get_draft_findings",
+    }
 
 
 def test_mcp_rejects_invalid_access_token(monkeypatch):

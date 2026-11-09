@@ -49,5 +49,12 @@ Configure the client with:
 - Authorization header: `Bearer $INKLOOM_ACCESS_TOKEN`
 
 Hosted clients cannot reach a user's `localhost`; they require a securely
-deployed HTTPS endpoint. The web frontend currently has no MCP connection
-management screen.
+deployed HTTPS endpoint. The web test bench uses `VITE_API_BASE_URL` to reach
+the backend in deployed environments; for local development, Vite proxies
+`/mcp` to the local backend. The test bench performs the MCP initialization
+handshake before calling a tool. `MCP-Session-Id` must be exposed by CORS when
+the frontend and backend have different origins.
+
+The **Copy VS Code MCP JSON** button produces VS Code's Streamable HTTP
+configuration and prompts for the Inkloom access token instead of copying the
+token itself. The token must belong to a signed-in Inkloom user.
