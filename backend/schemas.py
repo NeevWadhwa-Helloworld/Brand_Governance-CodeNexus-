@@ -163,6 +163,7 @@ class DraftDetail(BaseModel):
     current_version: int
     status: Literal['Submitted', 'Scanned', 'In Revision', 'Pending Approval', 'Approved', 'Changes Requested']
     content_ref: Optional[str] = None
+    media_url: Optional[str] = None
     media_metadata: Optional[dict] = None
     created_at: str
     updated_at: str

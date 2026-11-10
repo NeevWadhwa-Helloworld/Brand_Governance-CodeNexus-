@@ -13,3 +13,4 @@ av>=11,<19
 psycopg[binary]>=3.2.3
 mcp>=2.0,<3.0
 redis>=5.0.0,<7.0.0
+supabase>=2.10.0,<3.0.0

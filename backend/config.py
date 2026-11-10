@@ -48,6 +48,15 @@ class Settings:
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./brand_governance.db")
     DB_PATH: Path = BASE_DIR / "brand_governance.db"
     is_postgres: bool = DATABASE_URL.startswith(("postgresql://", "postgres://"))
+    MEDIA_STORAGE_BACKEND: str = os.getenv(
+        "MEDIA_STORAGE_BACKEND",
+        "supabase" if is_postgres or ENVIRONMENT.lower() in {"production", "staging"} else "local",
+    ).strip().lower()
+    SUPABASE_URL: str = os.getenv("SUPABASE_URL", "").strip().rstrip("/")
+    SUPABASE_SERVICE_ROLE_KEY: str = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+    SUPABASE_STORAGE_BUCKET: str = os.getenv(
+        "SUPABASE_STORAGE_BUCKET", "draft-media"
+    ).strip()
     MAX_UPLOAD_SIZE_MB: int = int(os.getenv("MAX_UPLOAD_SIZE_MB", "100"))
     MCP_REQUESTS_PER_MINUTE: int = int(os.getenv("MCP_REQUESTS_PER_MINUTE", "60"))
     MCP_RATE_LIMIT_REDIS_URL: str = os.getenv("MCP_RATE_LIMIT_REDIS_URL", "").strip()
@@ -82,6 +91,8 @@ class Settings:
 
 settings = Settings()
 
+if settings.MEDIA_STORAGE_BACKEND not in {"local", "supabase"}:
+    raise RuntimeError("MEDIA_STORAGE_BACKEND must be either 'local' or 'supabase'.")
 if settings.MCP_REQUESTS_PER_MINUTE < 1:
     raise RuntimeError("MCP_REQUESTS_PER_MINUTE must be a positive integer.")
 if settings.MCP_RATE_LIMIT_REDIS_URL and not settings.MCP_RATE_LIMIT_REDIS_URL.startswith(

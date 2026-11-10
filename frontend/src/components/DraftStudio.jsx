@@ -987,7 +987,7 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
                               {/* Asset Preview Container */}
                               <div className="w-full flex items-center justify-center bg-canvas/40 rounded-lg p-2.5 border border-border/40">
                                 <img
-                                  src={mediaUrl(currentDraft.content_ref || '/static/uploads/sample_banner.png')}
+                                  src={mediaUrl(currentDraft.media_url || currentDraft.content_ref || '/static/uploads/sample_banner.png')}
                                   alt={currentDraft.title || 'Draft Banner'}
                                   onError={() => setFailedMediaDraftId(currentDraft.id)}
                                   className="max-h-56 sm:max-h-64 w-auto object-contain rounded-md shadow-sm"
@@ -1038,7 +1038,7 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
                         <audio
                           ref={mediaElementRef}
                           controls
-                          src={mediaUrl(currentDraft.content_ref)}
+                          src={mediaUrl(currentDraft.media_url || currentDraft.content_ref)}
                           onError={() => setFailedMediaDraftId(currentDraft.id)}
                           className="w-full"
                         />
@@ -1046,7 +1046,7 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
                         <video
                           ref={mediaElementRef}
                           controls
-                          src={mediaUrl(currentDraft.content_ref)}
+                          src={mediaUrl(currentDraft.media_url || currentDraft.content_ref)}
                           onError={() => setFailedMediaDraftId(currentDraft.id)}
                           className="max-h-64 w-full rounded-lg"
                         />

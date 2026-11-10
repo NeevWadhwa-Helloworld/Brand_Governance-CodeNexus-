@@ -1,6 +1,7 @@
 import asyncio
 import json
 import re
+import tempfile
 import time
 import uuid
 from datetime import datetime
@@ -13,6 +14,7 @@ from backend.services.deterministic_engine import DeterministicEngine
 from backend.services.rag_service import RAGService
 from backend.services.semantic_engine import SemanticEngine
 from backend.services.media_analyzer import MediaAnalyzer
+from backend.services.media_storage import MediaStorage
 from backend.config import settings
 
 
@@ -21,6 +23,46 @@ class Scanner:
 
     @classmethod
     async def scan_draft(
+        cls,
+        draft_id: str,
+        user_id: str,
+        content_text: Optional[str] = None,
+        image_path: Optional[str] = None,
+        transcript_confirmed: Optional[bool] = None,
+        transcript_source: Optional[str] = None,
+        reset_transcript: bool = False,
+    ) -> Dict[str, Any]:
+        if not image_path or MediaStorage.is_storage_ref(image_path):
+            with get_db() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT content_ref FROM drafts WHERE id = ?", (draft_id,))
+                draft = cursor.fetchone()
+            if draft and MediaStorage.is_storage_ref(draft.get("content_ref")):
+                with tempfile.TemporaryDirectory(prefix="draft-scan-") as temp_dir:
+                    suffix = Path(draft["content_ref"]).suffix
+                    media_path = Path(temp_dir) / f"source{suffix}"
+                    MediaStorage.download_to_path(draft["content_ref"], media_path)
+                    return await cls._scan_draft(
+                        draft_id,
+                        user_id,
+                        content_text,
+                        str(media_path),
+                        transcript_confirmed,
+                        transcript_source,
+                        reset_transcript,
+                    )
+        return await cls._scan_draft(
+            draft_id,
+            user_id,
+            content_text,
+            image_path,
+            transcript_confirmed,
+            transcript_source,
+            reset_transcript,
+        )
+
+    @classmethod
+    async def _scan_draft(
         cls,
         draft_id: str,
         user_id: str,
@@ -110,6 +152,7 @@ class Scanner:
                     / draft_id
                     / str(curr_version)
                     if content_type == "video"
+                    and settings.MEDIA_STORAGE_BACKEND != "supabase"
                     else None
                 )
                 media_analysis = await asyncio.to_thread(
@@ -268,7 +311,7 @@ class Scanner:
                     draft_id,
                     curr_version,
                     content_text,
-                    image_path,
+                    media_ref if MediaStorage.is_storage_ref(media_ref) else image_path,
                     None,
                     coverage_status,
                     coverage_reason,

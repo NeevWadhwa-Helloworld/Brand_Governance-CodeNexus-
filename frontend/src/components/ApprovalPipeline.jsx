@@ -559,7 +559,7 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
                             {/* Asset Preview Container */}
                             <div className="w-full min-h-56 flex items-center justify-center bg-canvas/40 rounded-lg p-3 border border-border/40">
                               <img
-                                src={mediaUrl(currentDraft.content_ref || '/static/uploads/sample_banner.png')}
+                                src={mediaUrl(currentDraft.media_url || currentDraft.content_ref || '/static/uploads/sample_banner.png')}
                                 alt={currentDraft.title || 'Draft Banner'}
                                 onError={() => setFailedMediaDraftId(currentDraft.id)}
                                 className="max-h-[32rem] max-w-full w-auto object-contain rounded-md shadow-sm"
@@ -608,7 +608,7 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
                       <audio
                         ref={mediaElementRef}
                         controls
-                        src={mediaUrl(currentDraft.content_ref)}
+                        src={mediaUrl(currentDraft.media_url || currentDraft.content_ref)}
                         onError={() => setFailedMediaDraftId(currentDraft.id)}
                         className="w-full"
                       />
@@ -616,7 +616,7 @@ export default function ApprovalPipeline({ currentUser, onDraftUpdated, showToas
                       <video
                         ref={mediaElementRef}
                         controls
-                        src={mediaUrl(currentDraft.content_ref)}
+                        src={mediaUrl(currentDraft.media_url || currentDraft.content_ref)}
                         onError={() => setFailedMediaDraftId(currentDraft.id)}
                         className="max-h-60 w-full rounded-lg"
                       />

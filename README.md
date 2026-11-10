@@ -60,11 +60,29 @@ These values are configured in Render's environment settings, not in the
 frontend build.
 
 Render's `RENDER_EXTERNAL_HOSTNAME` is also added to the backend trusted-host
-list automatically when available. To keep uploaded media available after a
-backend restart, set `STATIC_ROOT` to a mounted persistent-disk directory (for
-example `/var/data/static`) in Render. The default local `backend/static`
-directory is ephemeral on Render free web services, so uploaded media previews
-can disappear after a restart.
+list automatically when available. Draft images, audio, and video are stored
+in a private Supabase Storage bucket; set `MEDIA_STORAGE_BACKEND=supabase`,
+`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and `SUPABASE_STORAGE_BUCKET` in
+Render's environment settings. Create the bucket as private before enabling
+uploads. The service-role key is backend-only and must never be added to Vercel
+or the frontend. Draft previews use short-lived signed URLs, and scans download
+media to temporary files that are removed after analysis. Evaluation samples,
+logos, and other static assets continue using their existing storage paths.
+
+To clear all drafts and draft media while preserving database tables, run
+`python -m backend.scripts.clear_drafts --confirm` with the Supabase database
+and Storage settings configured. The command removes records from `drafts`
+(including rows that cascade from them) and objects under the bucket's `drafts/`
+prefix; it does not remove organizations, users, guidelines, or evaluation
+samples.
+
+Audio and video drafts are transcribed with local faster-whisper first. If local
+transcription fails and `GEMINI_API_KEY` is configured with `MODEL_PROVIDER=auto`
+or `gemini`, the backend may upload the media temporarily to Google Gemini as a
+fallback and then delete that temporary upload. The transcript remains unconfirmed
+until a creator or administrator reviews it. If the original asset is unavailable
+later, a supplied transcript can still be scanned, but the revision stays in human
+review.
 
 Audio and video drafts are transcribed with local faster-whisper first. If local
 transcription fails and `GEMINI_API_KEY` is configured with

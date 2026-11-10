@@ -2,6 +2,8 @@ import uuid
 import shutil
 import json
 import logging
+import mimetypes
+import tempfile
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import List, Optional
@@ -15,6 +17,7 @@ from backend.schemas import (
 )
 from backend.services.scanner import Scanner
 from backend.services.audit_service import AuditService
+from backend.services.media_storage import MediaStorage
 from backend.dependencies import require_role, get_current_user, organization_scope
 from backend.services.integration_adapters import LocalIntegrationAdapter
 
@@ -29,6 +32,28 @@ def _with_media_metadata(draft: dict) -> dict:
         except json.JSONDecodeError:
             draft["media_metadata"] = None
     return draft
+
+def _with_media_url(draft: dict) -> dict:
+    ref = draft.get("content_ref")
+    if ref and MediaStorage.is_storage_ref(ref):
+        try:
+            draft["media_url"] = MediaStorage.create_signed_url(ref)
+        except Exception as exc:
+            logger.exception("Could not sign draft media URL")
+            raise HTTPException(
+                status_code=503,
+                detail="Draft media is temporarily unavailable.",
+            ) from exc
+    return draft
+
+def _store_upload(path: Path, org_id: str, draft_id: str, original_name: str, content_type: str | None) -> str:
+    if settings.MEDIA_STORAGE_BACKEND == "supabase":
+        resolved_type = content_type or mimetypes.guess_type(original_name)[0] or "application/octet-stream"
+        return MediaStorage.upload_file(path, org_id, draft_id, original_name, resolved_type)
+    return f"/static/uploads/{path.name}"
+
+def _media_workspace_path(workspace, fallback_path: Path) -> Path:
+    return Path(workspace) / fallback_path.name if workspace else fallback_path
 
 def _with_media_analysis(revision: dict) -> dict:
     value = revision.get("media_analysis")
@@ -61,7 +86,7 @@ def list_drafts(org_id: Optional[str] = None, status: Optional[str] = None, curr
 
         results = []
         for d in draft_rows:
-            d_dict = _with_media_metadata(dict(d))
+            d_dict = _with_media_url(_with_media_metadata(dict(d)))
             # Fetch latest revision
             cursor.execute("""
                 SELECT * FROM revisions
@@ -132,31 +157,37 @@ async def upload_image_draft(
     draft_id = str(uuid.uuid4())
     now = datetime.utcnow().isoformat() + "Z"
 
-    # Save image file
     file_ext = Path(file.filename).suffix or ".png"
     saved_filename = f"{draft_id}{file_ext}"
-    dest_path = settings.STATIC_UPLOAD_DIR / saved_filename
-    with open(dest_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+    with tempfile.TemporaryDirectory(prefix="draft-upload-") as temp_dir:
+        dest_path = _media_workspace_path(
+            temp_dir if settings.MEDIA_STORAGE_BACKEND == "supabase" else None,
+            settings.STATIC_UPLOAD_DIR / saved_filename,
+        )
+        try:
+            with dest_path.open("wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
+            metadata = LocalIntegrationAdapter.inspect_media(str(dest_path), "image")
+            media_ref = _store_upload(
+                dest_path, org_id, draft_id, file.filename or saved_filename, file.content_type
+            )
+        except (FileNotFoundError, ValueError, OSError) as exc:
+            if settings.MEDIA_STORAGE_BACKEND != "supabase":
+                dest_path.unlink(missing_ok=True)
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except Exception as exc:
+            logger.exception("Image upload to media storage failed")
+            raise HTTPException(status_code=503, detail="Media storage is unavailable.") from exc
 
-    relative_url = f"/static/uploads/{saved_filename}"
-    try:
-        metadata = LocalIntegrationAdapter.inspect_media(str(dest_path), "image")
-    except (FileNotFoundError, ValueError, OSError) as exc:
-        dest_path.unlink(missing_ok=True)
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO drafts (id, org_id, author_id, title, content_type, current_version, status, content_ref, media_metadata, created_at, updated_at)
+                VALUES (?, ?, ?, ?, 'image', 1, 'Submitted', ?, ?, ?, ?)
+            """, (draft_id, org_id, x_user_id, title, media_ref, json.dumps(metadata), now, now))
 
-    with get_db() as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO drafts (id, org_id, author_id, title, content_type, current_version, status, content_ref, media_metadata, created_at, updated_at)
-            VALUES (?, ?, ?, ?, 'image', 1, 'Submitted', ?, ?, ?, ?)
-        """, (draft_id, org_id, x_user_id, title, relative_url, json.dumps(metadata), now, now))
-
-    AuditService.log(org_id, x_user_id, "draft_image_uploaded", {"title": title, "filename": file.filename}, draft_id=draft_id)
-
-    # Run scanner on image
-    await Scanner.scan_draft(draft_id, x_user_id, image_path=str(dest_path))
+        AuditService.log(org_id, x_user_id, "draft_image_uploaded", {"title": title, "filename": file.filename}, draft_id=draft_id)
+        await Scanner.scan_draft(draft_id, x_user_id, image_path=str(dest_path))
 
     return get_draft(draft_id, current_user)
 
@@ -174,55 +205,69 @@ async def upload_media_draft(
         raise HTTPException(status_code=422, detail="media_type must be audio or video")
     suffix = Path(file.filename or "").suffix or ".bin"
     draft_id = str(uuid.uuid4())
-    destination = settings.STATIC_UPLOAD_DIR / f"{draft_id}{suffix}"
-    with destination.open("wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-    try:
-        metadata = LocalIntegrationAdapter.inspect_media(str(destination), media_type)
-    except (FileNotFoundError, ValueError, OSError) as exc:
-        destination.unlink(missing_ok=True)
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-
     x_user_id = current_user["id"]
     org_id = organization_scope(current_user, org_id)
     now = datetime.utcnow().isoformat() + "Z"
-    relative_url = f"/static/uploads/{destination.name}"
-    with get_db() as conn:
-        conn.execute("""
-            INSERT INTO drafts
-            (id, org_id, author_id, title, content_type, current_version, status, content_ref, media_metadata, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, 1, 'Submitted', ?, ?, ?, ?)
-        """, (draft_id, org_id, x_user_id, title, media_type, relative_url, json.dumps(metadata), now, now))
-
-    AuditService.log(
-        org_id, x_user_id, "draft_media_uploaded",
-        {
-            "title": title,
-            "media_type": media_type,
-            "metadata": metadata,
-            "has_transcript": bool(transcript.strip()),
-            "transcript_confirmed": transcript_confirmed,
-        },
-        draft_id=draft_id,
-    )
-    try:
-        await Scanner.scan_draft(
-            draft_id,
-            x_user_id,
-            content_text=transcript.strip() or None,
-            image_path=None,
-            transcript_confirmed=transcript_confirmed,
-            transcript_source="creator" if transcript.strip() else None,
+    saved_filename = f"{draft_id}{suffix}"
+    with tempfile.TemporaryDirectory(prefix="draft-upload-") as temp_dir:
+        destination = _media_workspace_path(
+            temp_dir if settings.MEDIA_STORAGE_BACKEND == "supabase" else None,
+            settings.STATIC_UPLOAD_DIR / saved_filename,
         )
-    except Exception as exc:
-        logger.exception("Initial media scan failed for saved draft %s", draft_id)
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "message": "The media draft was saved, but its initial scan failed. Open it in Draft Studio and select Re-scan.",
-                "draft_id": draft_id,
+        try:
+            with destination.open("wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
+            metadata = LocalIntegrationAdapter.inspect_media(str(destination), media_type)
+            media_ref = _store_upload(
+                destination, org_id, draft_id, file.filename or saved_filename, file.content_type
+            )
+        except (FileNotFoundError, ValueError, OSError) as exc:
+            if settings.MEDIA_STORAGE_BACKEND != "supabase":
+                destination.unlink(missing_ok=True)
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except Exception as exc:
+            logger.exception("Media upload to storage failed")
+            raise HTTPException(status_code=503, detail="Media storage is unavailable.") from exc
+
+        with get_db() as conn:
+            conn.execute("""
+                INSERT INTO drafts
+                (id, org_id, author_id, title, content_type, current_version, status, content_ref, media_metadata, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, 1, 'Submitted', ?, ?, ?, ?)
+            """, (draft_id, org_id, x_user_id, title, media_type, media_ref, json.dumps(metadata), now, now))
+
+        AuditService.log(
+            org_id, x_user_id, "draft_media_uploaded",
+            {
+                "title": title,
+                "media_type": media_type,
+                "metadata": metadata,
+                "has_transcript": bool(transcript.strip()),
+                "transcript_confirmed": transcript_confirmed,
             },
-        ) from exc
+            draft_id=draft_id,
+        )
+        try:
+            await Scanner.scan_draft(
+                draft_id,
+                x_user_id,
+                content_text=transcript.strip() or None,
+                image_path=str(destination),
+                transcript_confirmed=transcript_confirmed,
+                transcript_source="creator" if transcript.strip() else None,
+            )
+        except Exception:
+            logger.exception("Initial media scan failed for saved draft %s", draft_id)
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "message": (
+                        "The media draft was saved, but its initial scan failed. "
+                        "Open it in Draft Studio and select Re-scan."
+                    ),
+                    "draft_id": draft_id,
+                },
+            )
     return get_draft(draft_id, current_user)
 
 @router.post("/{draft_id}/replace-media", response_model=DraftDetail)
@@ -251,42 +296,60 @@ async def replace_draft_media(
 
     suffix = Path(file.filename or "").suffix or ".bin"
     saved_filename = f"{uuid.uuid4()}{suffix}"
-    destination = settings.STATIC_UPLOAD_DIR / saved_filename
+    with tempfile.TemporaryDirectory(prefix="draft-upload-") as temp_dir:
+        destination = _media_workspace_path(
+            temp_dir if settings.MEDIA_STORAGE_BACKEND == "supabase" else None,
+            settings.STATIC_UPLOAD_DIR / saved_filename,
+        )
+        try:
+            with destination.open("wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
+            metadata = LocalIntegrationAdapter.inspect_media(str(destination), draft["content_type"])
+            media_ref = _store_upload(
+                destination,
+                draft["org_id"],
+                draft_id,
+                file.filename or saved_filename,
+                file.content_type,
+            )
+        except (FileNotFoundError, ValueError, OSError) as exc:
+            if settings.MEDIA_STORAGE_BACKEND != "supabase":
+                destination.unlink(missing_ok=True)
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except Exception as exc:
+            logger.exception("Replacement media upload failed for draft %s", draft_id)
+            raise HTTPException(status_code=503, detail="Media storage is unavailable.") from exc
+
+        now = datetime.utcnow().isoformat() + "Z"
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE drafts
+                SET content_ref = ?, media_metadata = ?, current_version = ?,
+                    status = 'In Revision', updated_at = ?
+                WHERE id = ? AND org_id = ?
+            """, (
+                media_ref, json.dumps(metadata), new_version, now,
+                draft_id, current_user["org_id"],
+            ))
+
+        AuditService.log(
+            draft["org_id"],
+            current_user["id"],
+            "draft_media_replaced",
+            {"media_type": draft["content_type"], "filename": file.filename},
+            draft_id=draft_id,
+        )
+        await Scanner.scan_draft(
+            draft_id,
+            current_user["id"],
+            image_path=str(destination),
+            reset_transcript=True,
+        )
     try:
-        with destination.open("wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-        metadata = LocalIntegrationAdapter.inspect_media(str(destination), draft["content_type"])
-    except (FileNotFoundError, ValueError, OSError) as exc:
-        destination.unlink(missing_ok=True)
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-    relative_url = f"/static/uploads/{saved_filename}"
-    now = datetime.utcnow().isoformat() + "Z"
-    with get_db() as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            UPDATE drafts
-            SET content_ref = ?, media_metadata = ?, current_version = ?,
-                status = 'In Revision', updated_at = ?
-            WHERE id = ? AND org_id = ?
-        """, (
-            relative_url, json.dumps(metadata), new_version, now,
-            draft_id, current_user["org_id"],
-        ))
-
-    AuditService.log(
-        draft["org_id"],
-        current_user["id"],
-        "draft_media_replaced",
-        {"media_type": draft["content_type"], "filename": file.filename},
-        draft_id=draft_id,
-    )
-    await Scanner.scan_draft(
-        draft_id,
-        current_user["id"],
-        image_path=str(destination),
-        reset_transcript=True,
-    )
+        MediaStorage.delete_reference(draft.get("content_ref"))
+    except Exception:
+        logger.exception("Could not remove replaced media for draft %s", draft_id)
     return get_draft(draft_id, current_user)
 
 @router.get("/{draft_id}", response_model=DraftDetail)
@@ -319,7 +382,7 @@ def get_draft(draft_id: str, current_user: dict = Depends(get_current_user)):
         latest_revision = history[0] if history else None
 
         return {
-            **_with_media_metadata(dict(draft)),
+            **_with_media_url(_with_media_metadata(dict(draft))),
             "latest_revision": latest_revision,
             "history": history
         }
