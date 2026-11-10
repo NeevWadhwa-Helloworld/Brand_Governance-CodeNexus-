@@ -43,7 +43,30 @@ class Scanner:
             content_type = draft["content_type"]
             media_ref = draft.get("content_ref")
             prior_media_analysis = {}
-            if content_text is None and image_path is None and not reset_transcript:
+            if content_type in {"audio", "video"} and not reset_transcript:
+                cursor.execute(
+                    "SELECT content_text, media_analysis FROM revisions "
+                    "WHERE draft_id = ? AND version_num <= ? "
+                    "ORDER BY created_at DESC, id DESC LIMIT 1",
+                    (draft_id, curr_version),
+                )
+                revision = cursor.fetchone()
+                if revision:
+                    try:
+                        prior_media_analysis = json.loads(
+                            revision.get("media_analysis") or "{}"
+                        )
+                    except (TypeError, json.JSONDecodeError):
+                        prior_media_analysis = {}
+                    if content_text is None:
+                        content_text = prior_media_analysis.get("transcript")
+                    if transcript_source is None:
+                        transcript_source = prior_media_analysis.get("transcript_source")
+                    if transcript_confirmed is None:
+                        transcript_confirmed = bool(
+                            prior_media_analysis.get("transcript_confirmed", False)
+                        )
+            elif content_text is None and image_path is None and not reset_transcript:
                 if content_type == "text":
                     content_text = media_ref
                 else:
@@ -78,7 +101,7 @@ class Scanner:
             media_path = image_path
             if not media_path and media_ref and media_ref.startswith("/static/uploads/"):
                 media_path = str(settings.STATIC_UPLOAD_DIR / Path(media_ref).name)
-            if media_path:
+            if media_path and Path(media_path).is_file():
                 if content_type == "image":
                     image_path = media_path
                 artifact_dir = (
@@ -90,12 +113,29 @@ class Scanner:
                     else None
                 )
                 media_analysis = await asyncio.to_thread(
-                    MediaAnalyzer.analyze, media_path, content_type, artifact_dir
+                    MediaAnalyzer.analyze,
+                    media_path,
+                    content_type,
+                    artifact_dir,
+                    transcribe_speech=transcript_source != "creator",
                 )
                 if content_type in {"audio", "video"}:
                     manual_transcript = content_text is not None
                     if manual_transcript:
-                        media_analysis["automatic_transcript"] = media_analysis.get("transcript", "")
+                        automatic_transcript = media_analysis.get("transcript", "")
+                        if (
+                            not automatic_transcript
+                            and prior_media_analysis.get("transcript_source") != "creator"
+                        ):
+                            automatic_transcript = (
+                                prior_media_analysis.get("automatic_transcript")
+                                or prior_media_analysis.get("transcript", "")
+                            )
+                        media_analysis["automatic_transcript"] = automatic_transcript
+                        media_analysis["transcript_segments"] = prior_media_analysis.get(
+                            "transcript_segments",
+                            media_analysis.get("transcript_segments", []),
+                        )
                         media_analysis["transcript"] = content_text.strip()
                         media_analysis["transcript_source"] = transcript_source or "creator"
                     media_analysis["transcript_confirmed"] = bool(transcript_confirmed)
@@ -123,6 +163,38 @@ class Scanner:
                     )
                 if extracted_text:
                     content_text = extracted_text
+            elif content_type in {"audio", "video"}:
+                media_analysis = dict(prior_media_analysis)
+                automatic_transcript = media_analysis.get("automatic_transcript", "")
+                if (
+                    not automatic_transcript
+                    and media_analysis.get("transcript_source") != "creator"
+                ):
+                    automatic_transcript = media_analysis.get("transcript", "")
+                media_analysis["automatic_transcript"] = automatic_transcript
+                if content_text is not None:
+                    media_analysis["transcript"] = content_text.strip()
+                    media_analysis["transcript_source"] = transcript_source or "creator"
+                media_analysis["transcript_confirmed"] = bool(transcript_confirmed)
+                media_analysis["media_asset_available"] = False
+                media_analysis["extraction_status"] = "needs_review"
+                media_analysis["capabilities"] = dict(
+                    media_analysis.get("capabilities") or {}
+                )
+                media_analysis["capabilities"]["media_asset"] = False
+                missing = set(media_analysis.get("missing_capabilities", []))
+                missing.add("media_asset")
+                if content_text:
+                    media_analysis["capabilities"]["speech_to_text"] = True
+                    if transcript_confirmed:
+                        missing.discard("speech_to_text")
+                        missing.discard("transcript_confirmation")
+                        media_analysis["capabilities"]["human_transcript"] = True
+                    else:
+                        missing.add("transcript_confirmation")
+                else:
+                    missing.add("speech_to_text")
+                media_analysis["missing_capabilities"] = sorted(missing)
 
         coverage_status, coverage_reason = cls._assess_policy_coverage(
             org_id, content_text, image_path, content_type

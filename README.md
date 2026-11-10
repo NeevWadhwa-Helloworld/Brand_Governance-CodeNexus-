@@ -66,6 +66,12 @@ example `/var/data/static`) in Render. The default local `backend/static`
 directory is ephemeral on Render free web services, so uploaded media previews
 can disappear after a restart.
 
+Audio and video drafts are transcribed with local faster-whisper first. If local
+transcription fails and `GEMINI_API_KEY` is configured with
+`MODEL_PROVIDER=auto` or `gemini`, Gemini is used as a fallback and the temporary
+provider upload is deleted afterward. Draft Studio scans the transcript against
+active guidelines and requires creator review before the draft can be submitted.
+
 ---
 
 ## 🏗️ Architecture & Two-Layer Checking Engine

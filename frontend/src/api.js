@@ -15,11 +15,15 @@ function authHeaders(_userId) {
 async function parseResponse(res) {
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
+    const detail = body.detail;
     const error = new Error(
-      typeof body.detail === 'string' ? body.detail : `Request failed (${res.status})`
+      typeof detail === 'string'
+        ? detail
+        : detail?.message || `Request failed (${res.status})`
     );
-    if (typeof body.draft_id === 'string') {
-      error.draftId = body.draft_id;
+    const draftId = detail?.draft_id || body.draft_id;
+    if (typeof draftId === 'string') {
+      error.draftId = draftId;
     }
     throw error;
   }

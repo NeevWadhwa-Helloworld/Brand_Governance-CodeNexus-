@@ -263,10 +263,14 @@ RULES:
         # 2. Check for Voice / Tone - Arrogant or overly informal vs Confident & Empathetic (VOICE-01, VOICE-02)
         if "VOICE-01" in retrieved_ids:
             arrogant_patterns = [
-                (r'\b(we\s+crush\s+our\s+competitors|our\s+rivals\s+are\s+clueless|we\s+are\s+vastly\s+superior)\b',
+                (r'\b(our\s+rivals\s+are\s+clueless|we\s+are\s+vastly\s+superior)\b',
                  "VOICE-01",
                  "Arrogant and aggressive tone violates VOICE-01. Inkloom's voice must be confident, empowering, and helpful.",
                  "we deliver unmatched clarity and precision for creators"),
+                (r'\b((?:we\s+)?crush(?:es|ed|ing)?\s+(?:our\s+)?competitors|dominat(?:e|es|ed|ing)\s+(?:the\s+)?competition)\b',
+                 "VOICE-01",
+                 "Boastful competitive language violates VOICE-01. Inkloom's voice must be confident, empowering, and helpful.",
+                 "we help creators and teams achieve their goals"),
                 (r'\b(obviously\s+you\s+need|any\s+fool\s+can\s+see)\b',
                  "VOICE-01",
                  "Condescending phrasing alienates creators. VOICE-01 demands an empathetic, partner-like tone.",

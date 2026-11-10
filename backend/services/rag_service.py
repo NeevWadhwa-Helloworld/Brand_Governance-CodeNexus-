@@ -22,9 +22,19 @@ class RAGService:
     def compute_similarity(cls, query_tokens: List[str], doc_tokens: List[str]) -> float:
         if not query_tokens or not doc_tokens:
             return 0.0
-        q_set, d_set = set(query_tokens), set(doc_tokens)
+        q_set = {cls._normalize_token(token) for token in query_tokens}
+        d_set = {cls._normalize_token(token) for token in doc_tokens}
         intersection = q_set.intersection(d_set)
         return len(intersection) / (math.sqrt(len(q_set)) * math.sqrt(len(d_set))) if intersection else 0.0
+
+    @staticmethod
+    def _normalize_token(token: str) -> str:
+        if len(token) > 5 and token.endswith("ies"):
+            return token[:-3] + "y"
+        for suffix in ("ing", "ed", "es", "s"):
+            if len(token) - len(suffix) >= 3 and token.endswith(suffix):
+                return token[:-len(suffix)]
+        return token
 
     @classmethod
     def get_active_rules(cls, org_id: str) -> List[Dict[str, Any]]:

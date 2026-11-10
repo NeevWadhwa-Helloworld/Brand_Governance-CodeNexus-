@@ -4,6 +4,8 @@ import tempfile
 import json
 import logging
 import math
+import time
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -17,7 +19,11 @@ class MediaAnalyzer:
 
     @classmethod
     def analyze(
-        cls, path: str, media_type: str, artifact_dir: Path | None = None
+        cls,
+        path: str,
+        media_type: str,
+        artifact_dir: Path | None = None,
+        transcribe_speech: bool = True,
     ) -> Dict[str, Any]:
         file_path = Path(path)
         if not file_path.is_file():
@@ -38,7 +44,11 @@ class MediaAnalyzer:
         if media_type not in {"audio", "video"}:
             raise ValueError("media_type must be image, audio, or video")
 
-        transcript = cls._transcribe(file_path)
+        transcript = (
+            cls._transcribe(file_path)
+            if transcribe_speech
+            else {"available": False, "text": "", "segments": []}
+        )
         frames: List[Dict[str, Any]] = []
         video_duration = None
         if media_type == "video":
@@ -61,7 +71,9 @@ class MediaAnalyzer:
             "extraction_status": "complete" if not missing else "needs_review",
             "transcript": transcript["text"],
             "transcript_segments": transcript.get("segments", []),
-            "transcript_source": "automatic" if transcript["available"] else "none",
+            "transcript_source": (
+                transcript.get("source", "automatic") if transcript["available"] else "none"
+            ),
             "transcript_confirmed": False,
             "ocr_text": ocr_text,
             "findings": frames,
@@ -97,29 +109,97 @@ class MediaAnalyzer:
     @staticmethod
     def _transcribe(file_path: Path) -> Dict[str, Any]:
         try:
-            from faster_whisper import WhisperModel
-        except ImportError:
-            return {"available": False, "text": ""}
-
-        try:
-            model = WhisperModel("base", device="cpu", compute_type="int8")
+            model = MediaAnalyzer._load_whisper_model()
             segments, _ = model.transcribe(str(file_path))
-        except (OSError, RuntimeError, ValueError, TypeError, IndexError):
-            return {"available": False, "text": ""}
-        segment_data = []
-        for segment in segments:
-            text = segment.text.strip()
-            if text:
-                segment_data.append({
-                    "start_time": round(segment.start, 3),
-                    "end_time": round(segment.end, 3),
-                    "text": text,
-                })
-        return {
-            "available": bool(segment_data),
-            "text": " ".join(segment["text"] for segment in segment_data),
-            "segments": segment_data,
-        }
+            segment_data = []
+            for segment in segments:
+                text = segment.text.strip()
+                if text:
+                    segment_data.append({
+                        "start_time": round(segment.start, 3),
+                        "end_time": round(segment.end, 3),
+                        "text": text,
+                    })
+            if segment_data:
+                return {
+                    "available": True,
+                    "text": " ".join(segment["text"] for segment in segment_data),
+                    "segments": segment_data,
+                    "source": "faster-whisper",
+                }
+        except Exception:
+            logger.exception(
+                "Local speech transcription failed for %s; trying configured cloud fallback",
+                file_path.name,
+            )
+        return MediaAnalyzer._transcribe_with_gemini(file_path)
+
+    @staticmethod
+    @lru_cache(maxsize=1)
+    def _load_whisper_model():
+        from faster_whisper import WhisperModel
+        return WhisperModel("base", device="cpu", compute_type="int8")
+
+    @staticmethod
+    def _transcribe_with_gemini(file_path: Path) -> Dict[str, Any]:
+        if (
+            not settings.GEMINI_API_KEY
+            or settings.GEMINI_API_KEY == "your_gemini_api_key_here"
+            or settings.MODEL_PROVIDER in {"local", "private"}
+        ):
+            return {"available": False, "text": "", "segments": []}
+
+        client = None
+        uploaded_file = None
+        try:
+            from google import genai
+
+            client = genai.Client(api_key=settings.GEMINI_API_KEY)
+            uploaded_file = client.files.upload(file=str(file_path))
+            deadline = time.monotonic() + 120
+            while getattr(getattr(uploaded_file, "state", None), "name", "") == "PROCESSING":
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("Gemini media processing timed out")
+                time.sleep(1)
+                uploaded_file = client.files.get(name=uploaded_file.name)
+
+            if getattr(getattr(uploaded_file, "state", None), "name", "") == "FAILED":
+                raise RuntimeError("Gemini could not process the uploaded media")
+
+            media_description = "video" if file_path.suffix.lower() in {
+                ".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v"
+            } else "audio"
+            response = client.models.generate_content(
+                model=settings.GEMINI_MODEL,
+                contents=[
+                    uploaded_file,
+                    (
+                        f"Transcribe the spoken words in this {media_description} verbatim. "
+                        "Return only the transcript; do not summarize, correct, or add commentary."
+                    ),
+                ],
+            )
+            text = (getattr(response, "text", None) or "").strip()
+            if not text:
+                raise ValueError("Gemini returned an empty transcript")
+            return {
+                "available": True,
+                "text": text,
+                "segments": [],
+                "source": "gemini",
+            }
+        except Exception:
+            logger.exception("Gemini speech transcription failed for %s", file_path.name)
+            return {"available": False, "text": "", "segments": []}
+        finally:
+            if client and uploaded_file and getattr(uploaded_file, "name", None):
+                try:
+                    client.files.delete(name=uploaded_file.name)
+                except Exception:
+                    logger.exception(
+                        "Could not delete temporary Gemini media upload %s",
+                        uploaded_file.name,
+                    )
 
     @classmethod
     def _analyze_video_frames(

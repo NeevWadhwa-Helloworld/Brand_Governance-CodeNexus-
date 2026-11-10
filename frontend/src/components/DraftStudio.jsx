@@ -30,7 +30,6 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
   const [creatingDraft, setCreatingDraft] = useState(false);
   const [createDraftError, setCreateDraftError] = useState('');
   const [mediaTranscript, setMediaTranscript] = useState('');
-  const [mediaTranscriptConfirmed, setMediaTranscriptConfirmed] = useState(false);
   const [mediaTranscriptText, setMediaTranscriptText] = useState('');
   const [transcriptConfirmationChecked, setTranscriptConfirmationChecked] = useState(false);
   const [savingTranscript, setSavingTranscript] = useState(false);
@@ -300,13 +299,11 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
         formData.append('title', newTitle || `Untitled ${newType}`);
         formData.append('media_type', newType);
         formData.append('transcript', mediaTranscript);
-        formData.append('transcript_confirmed', String(mediaTranscriptConfirmed));
         formData.append('file', selectedFile);
         const created = await api.uploadMediaDraft(formData);
         setIsCreatingNew(false);
         setNewTitle('');
         setMediaTranscript('');
-        setMediaTranscriptConfirmed(false);
         setSelectedFileWithPreview(null);
         await loadDrafts();
         setSelectedDraftId(created.id);
@@ -672,23 +669,16 @@ export default function DraftStudio({ currentUser, onDraftUpdated, showToast }) 
                   </div>
                 )}
                 <textarea
-                  placeholder="Paste transcript/captions. If left blank, extraction may be attempted automatically..."
+                  placeholder="Optional transcript/captions. Leave blank to generate automatically."
                   value={mediaTranscript}
                   onChange={e => setMediaTranscript(e.target.value)}
                   maxLength={50000}
                   rows={3}
                   className="w-full bg-[#0E1428] border border-[#1F2A4A] rounded-xl px-3 py-2 text-xs text-[#E8ECF8] placeholder-[#7C88AB] focus:outline-none focus:border-[#4F6BED] transition-colors"
                 />
-                <label className="flex items-start gap-2 text-[11px] text-[#AAB4D0]">
-                  <input
-                    type="checkbox"
-                    checked={mediaTranscriptConfirmed}
-                    disabled={!mediaTranscript.trim()}
-                    onChange={e => setMediaTranscriptConfirmed(e.target.checked)}
-                    className="mt-0.5 accent-[#34D399]"
-                  />
-                  <span>I reviewed this transcript against the audio/video and confirm it is accurate.</span>
-                </label>
+                <p className="text-[11px] text-[#7C88AB]">
+                  Review and confirm the generated or supplied transcript after the draft is scanned.
+                </p>
               </div>
             )}
 

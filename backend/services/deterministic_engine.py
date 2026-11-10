@@ -207,8 +207,14 @@ class DeterministicEngine:
 
             # Check 2: SLA uptime fact check
             if fact['fact_key'] == 'sla_uptime':
-                pattern = re.compile(r'\b(100%|99\.99%)\s*(?:uptime|sla)\b', re.IGNORECASE)
+                pattern = re.compile(
+                    r'\b(?P<value>\d{1,3}(?:\.\d+)?%)\s*(?:[a-z]+\s+){0,2}(?:uptime|sla)\b',
+                    re.IGNORECASE,
+                )
                 for match in pattern.finditer(text):
+                    approved_value = re.search(r'\d{1,3}(?:\.\d+)?%', approved_metric)
+                    if approved_value and match.group("value") == approved_value.group(0):
+                        continue
                     span_text = match.group(0)
                     flags.append({
                         "rule_id": "FACT-03",
@@ -224,9 +230,30 @@ class DeterministicEngine:
 
             # Check 3: Series A funding fact check
             elif fact['fact_key'] == 'funding_round':
-                pattern = re.compile(r'\b(?:\$[0-9]+M\s+seed|\$5M\s+series\s+A)\b', re.IGNORECASE)
+                pattern = re.compile(
+                    r'(?:\$?\d+(?:\.\d+)?\s*(?:m|million)\s*'
+                    r'(?:seed(?:\s+round)?|series\s+a)\b|'
+                    r'\b(?:pre[-\s]?seed|seed)(?:\s+round)?\b'
+                    r'[^.!?\n]{0,80}?\$?\d+(?:\.\d+)?\s*(?:m|million)\b)',
+                    re.IGNORECASE,
+                )
                 for match in pattern.finditer(text):
                     span_text = match.group(0)
+                    amount = cls._numeric_value(span_text)
+                    approved_amount = cls._numeric_value(approved_metric)
+                    is_seed_round = bool(
+                        re.search(
+                            r'\b(?:pre[-\s]?seed|seed)(?:\s+round)?\b',
+                            span_text,
+                            re.IGNORECASE,
+                        )
+                    )
+                    if not is_seed_round and (
+                        amount is None
+                        or approved_amount is None
+                        or amount == approved_amount
+                    ):
+                        continue
                     flags.append({
                         "rule_id": "FACT-02",
                         "category": "facts",

@@ -205,14 +205,24 @@ async def upload_media_draft(
         },
         draft_id=draft_id,
     )
-    await Scanner.scan_draft(
-        draft_id,
-        x_user_id,
-        content_text=transcript.strip() or None,
-        image_path=None,
-        transcript_confirmed=transcript_confirmed,
-        transcript_source="creator" if transcript.strip() else None,
-    )
+    try:
+        await Scanner.scan_draft(
+            draft_id,
+            x_user_id,
+            content_text=transcript.strip() or None,
+            image_path=None,
+            transcript_confirmed=transcript_confirmed,
+            transcript_source="creator" if transcript.strip() else None,
+        )
+    except Exception as exc:
+        logger.exception("Initial media scan failed for saved draft %s", draft_id)
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "message": "The media draft was saved, but its initial scan failed. Open it in Draft Studio and select Re-scan.",
+                "draft_id": draft_id,
+            },
+        ) from exc
     return get_draft(draft_id, current_user)
 
 @router.post("/{draft_id}/replace-media", response_model=DraftDetail)
@@ -346,6 +356,7 @@ async def update_media_transcript(
                 detail="Only the draft creator or an administrator can edit its transcript.",
             )
         version = draft["current_version"] + 1
+        previous_status = draft["status"]
         now = datetime.now(timezone.utc).isoformat()
         cursor.execute(
             """
@@ -355,6 +366,37 @@ async def update_media_transcript(
             (version, now, draft_id, current_user["org_id"]),
         )
 
+    try:
+        await Scanner.scan_draft(
+            draft_id,
+            current_user["id"],
+            content_text=transcript,
+            transcript_confirmed=transcript_in.confirmed,
+            transcript_source="creator",
+        )
+    except Exception as exc:
+        logger.exception("Transcript scan failed for draft %s", draft_id)
+        with get_db() as conn:
+            conn.execute(
+                """
+                UPDATE drafts SET current_version = ?, status = ?, updated_at = ?
+                WHERE id = ? AND org_id = ?
+                """,
+                (
+                    version - 1,
+                    previous_status,
+                    datetime.now(timezone.utc).isoformat(),
+                    draft_id,
+                    current_user["org_id"],
+                ),
+            )
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "message": "The transcript could not be scanned; the previous draft revision is unchanged. Please retry.",
+                "draft_id": draft_id,
+            },
+        ) from exc
     AuditService.log(
         draft["org_id"],
         current_user["id"],
@@ -366,23 +408,6 @@ async def update_media_transcript(
         },
         draft_id=draft_id,
     )
-    try:
-        await Scanner.scan_draft(
-            draft_id,
-            current_user["id"],
-            content_text=transcript,
-            transcript_confirmed=transcript_in.confirmed,
-            transcript_source="creator",
-        )
-    except Exception as exc:
-        logger.exception("Transcript saved but scan failed for draft %s", draft_id)
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "message": "Transcript was saved, but scanning failed. Retry the scan before submitting.",
-                "draft_id": draft_id,
-            },
-        ) from exc
     return get_draft(draft_id, current_user)
 
 @router.put("/{draft_id}")

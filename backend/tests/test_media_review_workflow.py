@@ -1,4 +1,5 @@
 from contextlib import nullcontext
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -31,9 +32,15 @@ class FakeCursor:
 
 def _draft_context(monkeypatch, draft):
     cursor = FakeCursor(draft)
-    monkeypatch.setattr(
-        drafts, "get_db", lambda: nullcontext(type("Connection", (), {"cursor": lambda self: cursor})())
-    )
+
+    class FakeConnection:
+        def cursor(self):
+            return cursor
+
+        def execute(self, query, params=()):
+            return cursor.execute(query, params)
+
+    monkeypatch.setattr(drafts, "get_db", lambda: nullcontext(FakeConnection()))
     return cursor
 
 
@@ -47,6 +54,7 @@ async def test_creator_can_edit_and_confirm_transcript_then_rescan(monkeypatch):
             "author_id": "creator-1",
             "content_type": "video",
             "current_version": 2,
+            "status": "Scanned",
         },
     )
     scan_calls = []
@@ -121,6 +129,40 @@ async def test_empty_transcript_cannot_be_confirmed():
     assert error.value.status_code == 422
 
 
+@pytest.mark.anyio
+async def test_transcript_scan_failure_returns_service_error_and_rolls_back_version(monkeypatch):
+    cursor = _draft_context(
+        monkeypatch,
+        {
+            "id": "draft-1",
+            "org_id": "org-1",
+            "author_id": "creator-1",
+            "content_type": "audio",
+            "current_version": 2,
+            "status": "Scanned",
+        },
+    )
+    monkeypatch.setattr(
+        drafts.Scanner,
+        "scan_draft",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("scanner unavailable")),
+    )
+    monkeypatch.setattr(drafts.AuditService, "log", lambda *_args, **_kwargs: None)
+
+    with pytest.raises(HTTPException) as error:
+        await drafts.update_media_transcript(
+            "draft-1",
+            TranscriptUpdate(transcript="Reviewed copy", confirmed=True),
+            {"id": "creator-1", "org_id": "org-1", "role": "creator"},
+        )
+
+    assert error.value.status_code == 503
+    assert "previous draft revision is unchanged" in error.value.detail["message"]
+    rollback_query, rollback_params = cursor.executed[-1]
+    assert "current_version = ?" in rollback_query
+    assert rollback_params[:2] == (2, "Scanned")
+
+
 def test_missing_media_transcript_keeps_policy_coverage_in_human_review():
     status, reason = Scanner._assess_policy_coverage(
         "org-1", None, None, "audio"
@@ -128,6 +170,83 @@ def test_missing_media_transcript_keeps_policy_coverage_in_human_review():
 
     assert status == "needs_review"
     assert "no transcript or caption text" in reason
+
+
+@pytest.mark.anyio
+async def test_manual_transcript_rescan_survives_missing_original_media(monkeypatch):
+    class Cursor:
+        def __init__(self, rows=()):
+            self.rows = list(rows)
+            self.executed = []
+
+        def execute(self, query, params=()):
+            self.executed.append((query, params))
+
+        def fetchone(self):
+            return self.rows.pop(0) if self.rows else None
+
+    class Connection:
+        def __init__(self, cursor):
+            self.fake_cursor = cursor
+
+        def cursor(self):
+            return self.fake_cursor
+
+    draft = {
+        "id": "draft-1",
+        "org_id": "org-1",
+        "current_version": 2,
+        "content_type": "audio",
+        "content_ref": "/static/uploads/missing.wav",
+    }
+    previous_revision = {
+        "content_text": "Automatic transcript",
+        "media_analysis": json.dumps({
+            "transcript": "Automatic transcript",
+            "transcript_source": "automatic",
+            "transcript_confirmed": False,
+            "transcript_segments": [],
+            "missing_capabilities": ["transcript_confirmation"],
+            "capabilities": {"speech_to_text": True},
+        }),
+    }
+    read_cursor = Cursor([draft, previous_revision])
+    write_cursor = Cursor()
+    contexts = iter([
+        nullcontext(Connection(read_cursor)),
+        nullcontext(Connection(write_cursor)),
+    ])
+    monkeypatch.setattr("backend.services.scanner.get_db", lambda: next(contexts))
+    monkeypatch.setattr(
+        "backend.services.scanner.RAGService.retrieve_relevant_rules",
+        lambda *_args, **_kwargs: [{"rule_id": "CLAIM-01", "category": "claims"}],
+    )
+    monkeypatch.setattr(
+        "backend.services.scanner.DeterministicEngine.run_all",
+        lambda *_args, **_kwargs: [],
+    )
+    monkeypatch.setattr(
+        "backend.services.scanner.SemanticEngine.run",
+        lambda *_args, **_kwargs: [],
+    )
+    monkeypatch.setattr(
+        "backend.services.scanner.AuditService.log",
+        lambda *_args, **_kwargs: None,
+    )
+
+    result = await Scanner.scan_draft(
+        "draft-1",
+        "creator-1",
+        content_text="Creator-reviewed transcript",
+        transcript_confirmed=True,
+        transcript_source="creator",
+    )
+
+    assert result["policy_coverage_status"] == "needs_review"
+    assert result["media_analysis"]["transcript"] == "Creator-reviewed transcript"
+    assert result["media_analysis"]["transcript_source"] == "creator"
+    assert result["media_analysis"]["media_asset_available"] is False
+    assert "media_asset" in result["media_analysis"]["missing_capabilities"]
 
 
 def test_media_findings_are_linked_to_transcript_timestamps_and_video_frames():
