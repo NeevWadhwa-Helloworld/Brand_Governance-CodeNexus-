@@ -32,7 +32,9 @@ class Scanner:
         transcript_source: Optional[str] = None,
         reset_transcript: bool = False,
     ) -> Dict[str, Any]:
-        if not image_path or MediaStorage.is_storage_ref(image_path):
+        if MediaStorage.is_storage_ref(image_path) or (
+            settings.MEDIA_STORAGE_BACKEND == "supabase" and not image_path
+        ):
             with get_db() as conn:
                 cursor = conn.cursor()
                 cursor.execute("SELECT content_ref FROM drafts WHERE id = ?", (draft_id,))
