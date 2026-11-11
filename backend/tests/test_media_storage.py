@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 import pytest
+from storage3.exceptions import StorageApiError
 
 from backend.services.media_storage import MediaStorage
 
@@ -68,6 +69,40 @@ def test_upload_stores_only_a_draft_reference_and_uses_private_bucket(configured
     assert uploaded_key.endswith("-campaign%20video.mp4")
     assert uploaded_bytes == b"video"
     assert options == {"content-type": "video/mp4", "upsert": "false"}
+
+
+def test_missing_bucket_is_created_as_private(monkeypatch, tmp_path):
+    bucket = FakeBucket()
+    bucket_info = SimpleNamespace(public=False)
+    create_calls = []
+    get_calls = []
+
+    def get_bucket(name):
+        get_calls.append(name)
+        if len(get_calls) == 1:
+            raise StorageApiError("Bucket not found", "NotFound", 404)
+        return bucket_info
+
+    storage = SimpleNamespace(
+        get_bucket=get_bucket,
+        create_bucket=lambda name, options: create_calls.append((name, options)),
+        from_=lambda _bucket_name: bucket,
+    )
+    monkeypatch.setattr("backend.services.media_storage.settings.MEDIA_STORAGE_BACKEND", "supabase")
+    monkeypatch.setattr("backend.services.media_storage.settings.SUPABASE_URL", "https://project.supabase.co")
+    monkeypatch.setattr("backend.services.media_storage.settings.SUPABASE_SERVICE_ROLE_KEY", "test-only")
+    monkeypatch.setattr("backend.services.media_storage.settings.SUPABASE_STORAGE_BUCKET", "draft-media")
+    monkeypatch.setattr(
+        "backend.services.media_storage.create_client",
+        lambda *_args: SimpleNamespace(storage=storage),
+    )
+    media_path = tmp_path / "source.wav"
+    media_path.write_bytes(b"audio")
+
+    MediaStorage.upload_file(media_path, "org-1", "draft-1", "source.wav", "audio/wav")
+
+    assert get_calls == ["draft-media", "draft-media"]
+    assert create_calls == [("draft-media", {"public": False})]
 
 
 def test_download_signed_url_and_draft_object_listing(configured_bucket, tmp_path):

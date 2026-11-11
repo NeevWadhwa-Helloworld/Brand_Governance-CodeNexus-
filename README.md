@@ -63,9 +63,10 @@ Render's `RENDER_EXTERNAL_HOSTNAME` is also added to the backend trusted-host
 list automatically when available. Draft images, audio, and video are stored
 in a private Supabase Storage bucket; set `MEDIA_STORAGE_BACKEND=supabase`,
 `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and `SUPABASE_STORAGE_BUCKET` in
-Render's environment settings. Create the bucket as private before enabling
-uploads. The service-role key is backend-only and must never be added to Vercel
-or the frontend. Draft previews use short-lived signed URLs, and scans download
+Render's environment settings. If the bucket does not exist, the backend creates
+it as private when the first media operation runs. The service-role key is
+backend-only and must never be added to Vercel or the frontend. Draft previews
+use short-lived signed URLs, and scans download
 media to temporary files that are removed after analysis. Evaluation samples,
 logos, and other static assets continue using their existing storage paths.
 

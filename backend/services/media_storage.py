@@ -5,6 +5,7 @@ from typing import Any
 from urllib.parse import quote
 
 from supabase import create_client
+from storage3.exceptions import StorageApiError
 
 from backend.config import settings
 
@@ -40,7 +41,16 @@ class MediaStorage:
         if not settings.SUPABASE_STORAGE_BUCKET:
             raise RuntimeError("SUPABASE_STORAGE_BUCKET must not be empty.")
         client = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)
-        bucket_info = client.storage.get_bucket(settings.SUPABASE_STORAGE_BUCKET)
+        try:
+            bucket_info = client.storage.get_bucket(settings.SUPABASE_STORAGE_BUCKET)
+        except StorageApiError as exc:
+            if str(exc.status) != "404":
+                raise
+            client.storage.create_bucket(
+                settings.SUPABASE_STORAGE_BUCKET,
+                options={"public": False},
+            )
+            bucket_info = client.storage.get_bucket(settings.SUPABASE_STORAGE_BUCKET)
         is_public = (
             bucket_info.get("public")
             if isinstance(bucket_info, dict)
