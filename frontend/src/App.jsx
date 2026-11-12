@@ -51,6 +51,13 @@ const ROLE_TABS = {
   admin: ['brain', 'studio', 'approvals', 'analytics', 'evaluation', 'mcp', 'audit', 'users']
 };
 
+const DEMO_ACCOUNTS = [
+  { name: 'Paridhi Agarwal', role: 'Creator', email: 'paridhi@inkloom.ai', password: 'inkloom-demo' },
+  { name: 'Neev Wadhwa', role: 'Reviewer', email: 'neev@inkloom.ai', password: 'inkloom-demo' },
+  { name: 'Chhavi Rani', role: 'Admin', email: 'chhavi@inkloom.ai', password: 'inkloom-demo' },
+  { name: 'Prateek Singh', role: 'Creator', email: 'prateek@inkloom.ai', password: 'inkloom-demo' }
+];
+
 export default function App() {
   const [activeTab, setActiveTab] = useState('studio');
   const [currentUser, setCurrentUser] = useState(null);
@@ -58,6 +65,8 @@ export default function App() {
   const [toast, setToast] = useState(null);
   const [authError, setAuthError] = useState(null);
   const [authLoading, setAuthLoading] = useState(false);
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
 
   // Persistent Theme State
   const [theme, setTheme] = useState(() => {
@@ -183,7 +192,7 @@ export default function App() {
           />
 
           {/* Login Card */}
-          <div className="w-full max-w-md rounded-2xl border border-[#1F2A4A] bg-[#111830] p-6 sm:p-8 space-y-6 shadow-2xl shadow-black/60 relative motion-safe:animate-fade-in">
+          <div className="w-full max-w-xl rounded-2xl border border-[#1F2A4A] bg-[#111830] p-6 sm:p-8 space-y-6 shadow-2xl shadow-black/60 relative motion-safe:animate-fade-in">
             {/* Brand Header */}
             <div>
               <div className="flex items-center gap-2.5 mb-2.5">
@@ -234,6 +243,8 @@ export default function App() {
                       type="email"
                       required
                       autoComplete="email"
+                      value={loginEmail}
+                      onChange={event => setLoginEmail(event.target.value)}
                       placeholder="Enter registered email"
                       className="w-full rounded-xl border border-[#1F2A4A] bg-[#0E1428] pl-9 pr-3.5 py-2.5 text-xs text-[#E8ECF8] placeholder-[#7C88AB] focus:border-[#36D6A0] focus:ring-1 focus:ring-[#36D6A0] focus:outline-none transition-all"
                     />
@@ -257,6 +268,8 @@ export default function App() {
                       type="password"
                       required
                       autoComplete="current-password"
+                      value={loginPassword}
+                      onChange={event => setLoginPassword(event.target.value)}
                       placeholder="Enter password"
                       className="w-full rounded-xl border border-[#1F2A4A] bg-[#0E1428] pl-9 pr-3.5 py-2.5 text-xs text-[#E8ECF8] placeholder-[#7C88AB] focus:border-[#36D6A0] focus:ring-1 focus:ring-[#36D6A0] focus:outline-none transition-all font-mono"
                     />
@@ -279,6 +292,45 @@ export default function App() {
                 )}
               </button>
             </form>
+
+            <section aria-labelledby="demo-accounts-heading" className="space-y-3 border-t border-[#1F2A4A] pt-5">
+              <div>
+                <h2 id="demo-accounts-heading" className="text-sm font-semibold text-[#E8ECF8]">
+                  Demo accounts
+                </h2>
+                <p className="mt-1 text-[11px] text-[#AAB4D0]">
+                  Select an account to fill the sign-in form.
+                </p>
+              </div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {DEMO_ACCOUNTS.map(account => (
+                  <button
+                    key={account.email}
+                    type="button"
+                    onClick={() => {
+                      setLoginEmail(account.email);
+                      setLoginPassword(account.password);
+                      setAuthError(null);
+                    }}
+                    className="rounded-xl border border-[#1F2A4A] bg-[#0E1428] p-3 text-left transition-colors hover:border-[#36D6A0]/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#36D6A0]"
+                    aria-label={`Use ${account.name}'s ${account.role} demo account`}
+                  >
+                    <span className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-semibold text-[#E8ECF8]">{account.name}</span>
+                      <span className="rounded-full bg-[#36D6A0]/10 px-2 py-0.5 text-[10px] font-medium text-[#36D6A0]">
+                        {account.role}
+                      </span>
+                    </span>
+                    <span className="mt-2 block break-all text-[11px] text-[#AAB4D0]">
+                      Email: {account.email}
+                    </span>
+                    <span className="mt-1 block text-[11px] text-[#AAB4D0]">
+                      Password: <span className="font-mono text-[#E8ECF8]">{account.password}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </section>
           </div>
         </main>
       ) : (
